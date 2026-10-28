@@ -456,6 +456,125 @@ async function waitFor(url, tries = 40) {
       await page.waitForTimeout(400);
     });
 
+    /* ------------------------------------------------------- window size */
+    describe("размер окон");
+    await it("окно открывается долей экрана, а не фиксированным размером", async () => {
+      await page.evaluate(() => {
+        Object.keys(Win.open).forEach((k) => Win.open[k].close());
+        S.allKeys().forEach((k) => { if (k.indexOf("win.") === 0) S.drop(k); });
+        S.save("winSize", "normal");
+      });
+      await page.setViewportSize({ width: 1800, height: 1000 });
+      await page.waitForTimeout(300);
+      await page.evaluate(() => Chat.openWindow());
+      await page.waitForTimeout(400);
+      const wide = (await page.locator('[data-win="chat"]').boundingBox()).width;
+
+      await page.evaluate(() => {
+        Object.keys(Win.open).forEach((k) => Win.open[k].close());
+        S.allKeys().forEach((k) => { if (k.indexOf("win.") === 0) S.drop(k); });
+      });
+      await page.setViewportSize({ width: 1200, height: 900 });
+      await page.waitForTimeout(300);
+      await page.evaluate(() => Chat.openWindow());
+      await page.waitForTimeout(400);
+      const narrow = (await page.locator('[data-win="chat"]').boundingBox()).width;
+
+      ok(wide > narrow + 300, `на широком экране окно должно быть шире: ${wide} против ${narrow}`);
+      ok(wide > 1800 * 0.6, "на 1800 ширина должна превысить 60% экрана, стало " + wide);
+    });
+
+    await it("регулятор размера меняет ширину", async () => {
+      await page.setViewportSize({ width: 1600, height: 950 });
+      await page.waitForTimeout(300);
+      const sizes = await page.evaluate(async () => {
+        const out = {};
+        for (const name of ["compact", "roomy", "huge"]) {
+          Object.keys(Win.open).forEach((k) => Win.open[k].close());
+          Win.setSize(name);
+          Chat.openWindow();
+          await new Promise((r) => setTimeout(r, 120));
+          out[name] = document.querySelector('[data-win="chat"]').getBoundingClientRect().width;
+        }
+        Win.setSize("normal");
+        return out;
+      });
+      ok(sizes.compact < sizes.roomy, "просторно должно быть шире компактного");
+      ok(sizes.roomy < sizes.huge, "во весь экран шире просторного");
+    });
+
+    await it("память раскладывает карточки в две колонки на широком", async () => {
+      await page.evaluate(() => {
+        Object.keys(Win.open).forEach((k) => Win.open[k].close());
+        S.allKeys().forEach((k) => { if (k.indexOf("win.") === 0) S.drop(k); });
+        Win.setSize("huge");
+        Memory.openWindow();
+      });
+      await page.waitForTimeout(600);
+      eq(await page.locator('[data-win="memory"] .pane-body.cols').count(), 1,
+        "широкая панель должна перейти в колонки");
+      await page.evaluate(() => Win.setSize("compact"));
+      await page.waitForTimeout(600);
+      eq(await page.locator('[data-win="memory"] .pane-body.cols').count(), 0,
+        "узкая панель остаётся одной лентой");
+      await page.evaluate(() => { Win.setSize("normal"); Win.open.memory.close(); });
+    });
+
+    await it("карточки в колонках не налезают друг на друга", async () => {
+      await page.setViewportSize({ width: 1800, height: 1000 });
+      await page.evaluate(() => {
+        Object.keys(Win.open).forEach((k) => Win.open[k].close());
+        S.allKeys().forEach((k) => { if (k.indexOf("win.") === 0) S.drop(k); });
+        Win.setSize("huge");
+        Settings.openWindow();
+      });
+      await page.waitForTimeout(700);
+      const bad = await page.evaluate(() => {
+        const body = document.querySelector('[data-win="settings"] .pane-body');
+        const problems = [];
+        [...body.children].forEach((el) => {
+          /* a card taller than the grid row it sits in spills over the next */
+          if (el.scrollHeight > el.getBoundingClientRect().height + 2) {
+            problems.push((el.textContent || "").slice(0, 24) + " обрезана");
+          }
+        });
+        const boxes = [...body.children].map((el) => el.getBoundingClientRect());
+        for (let i = 0; i < boxes.length; i++) {
+          for (let j = i + 1; j < boxes.length; j++) {
+            const a = boxes[i], b = boxes[j];
+            const overlapY = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+            const overlapX = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+            if (overlapY > 4 && overlapX > 4) problems.push("наложение " + i + " и " + j);
+          }
+        }
+        return problems;
+      });
+      eq(bad, []);
+      await page.evaluate(() => { Win.setSize("normal"); Win.open.settings.close(); });
+      await page.setViewportSize({ width: 1360, height: 880 });
+      await page.waitForTimeout(300);
+    });
+
+    await it("карта памяти растёт вместе с окном", async () => {
+      await page.evaluate(() => {
+        S.allKeys().forEach((k) => { if (k.indexOf("win.") === 0) S.drop(k); });
+        Win.setSize("huge");
+        Memory.openWindow();
+      });
+      await page.waitForTimeout(500);
+      await page.evaluate(() => {
+        const w = document.querySelector('[data-win="memory"]');
+        [...w.querySelectorAll(".rail-item")].find((b) => b.textContent.includes("Связи")).click();
+      });
+      await page.waitForTimeout(900);
+      const tall = await page.evaluate(() =>
+        document.querySelector('[data-win="memory"] .grow-canvas').clientHeight);
+      ok(tall > 420, "холст должен перерасти прежние 420 точек, стало " + tall);
+      await page.evaluate(() => { Win.setSize("normal"); Win.open.memory.close(); });
+      await page.setViewportSize({ width: 1360, height: 880 });
+      await page.waitForTimeout(300);
+    });
+
     describe("консоль");
     await it("ни одной ошибки за весь прогон", () => {
       eq(errors, []);

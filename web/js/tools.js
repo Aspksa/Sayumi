@@ -301,7 +301,7 @@
     Win.create({
       id: "notes",
       title: S.t("notes"),
-      width: 760, height: 540,
+      weight: 0.94, weightH: 1, minWidth: 540, minHeight: 420,
       content: root
     });
   }
@@ -656,7 +656,7 @@
     Win.create({
       id: "graph",
       title: "Граф заметок",
-      width: 760, height: 560,
+      weight: 0.9, weightH: 1, minWidth: 520, minHeight: 440,
       content: pane,
       onClose: function () { cancelAnimationFrame(raf); }
     });
@@ -929,7 +929,10 @@
     });
 
     draw();
-    Win.create({ id: "tasks", title: S.t("tasks"), width: 820, height: 560, content: pane });
+    Win.create({
+      id: "tasks", title: S.t("tasks"), content: pane,
+      weight: 1, weightH: 0.96, minWidth: 560, minHeight: 420
+    });
   }
 
   /* ------------------------------------------------------- reminders --- */
@@ -1081,7 +1084,10 @@
     });
 
     draw();
-    Win.create({ id: "files", title: S.t("files"), width: 680, height: 520, content: pane });
+    Win.create({
+      id: "files", title: S.t("files"), content: pane,
+      weight: 0.82, weightH: 0.94, minWidth: 460, minHeight: 400
+    });
   }
 
   global.Tools = {

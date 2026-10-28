@@ -7,6 +7,40 @@
   var zTop = 60;
   var open = {};
 
+  /* Windows used to open at a fixed pixel size chosen for a laptop, so on a
+     wide monitor they sat in the middle taking a third of it. They now ask
+     for a share of the viewport, scaled by one project wide setting. */
+  var SIZES = {
+    compact: 0.56,
+    normal: 0.70,
+    roomy: 0.82,
+    huge: 0.94
+  };
+
+  function sizeName() {
+    var name = S.load("winSize", "normal");
+    return SIZES[name] ? name : "normal";
+  }
+
+  function sizeFactor() {
+    return SIZES[sizeName()];
+  }
+
+  function wanted(options) {
+    var base = sizeFactor();
+    var weight = options.weight === undefined ? 1 : options.weight;
+    var weightH = options.weightH === undefined ? 1 : options.weightH;
+    var minW = options.minWidth || 360;
+    var minH = options.minHeight || 320;
+
+    var w = Math.round(window.innerWidth * base * weight);
+    var h = Math.round(window.innerHeight * Math.min(0.94, base + 0.10) * weightH);
+    return {
+      w: S.clamp(w, Math.min(minW, window.innerWidth - 24), window.innerWidth - 24),
+      h: S.clamp(h, Math.min(minH, window.innerHeight - 76), window.innerHeight - 76)
+    };
+  }
+
   var ICONS = {
     min: '<svg viewBox="0 0 16 16"><path d="M3 11h10"/></svg>',
     max: '<svg viewBox="0 0 16 16"><rect x="3" y="3" width="10" height="10" rx="1"/></svg>',
@@ -21,8 +55,9 @@
     }
 
     var saved = S.load("win." + id, null);
-    var width = (saved && saved.w) || options.width || 720;
-    var height = (saved && saved.h) || options.height || 520;
+    var fit = wanted(options);
+    var width = (saved && saved.w) || fit.w;
+    var height = (saved && saved.h) || fit.h;
     width = Math.min(width, window.innerWidth - 24);
     height = Math.min(height, window.innerHeight - 76);
 
@@ -199,7 +234,77 @@
     grip.addEventListener("pointercancel", stop);
   }
 
+  /* A pane only has room for two columns of cards once it is wide enough,
+     and that depends on the window, not the screen. Watch the element. */
+  function watchWidth(node, threshold) {
+    if (!node) return function () {};
+    var limit = threshold || 760;
+    function apply() {
+      node.classList.toggle("cols", node.clientWidth >= limit);
+    }
+    apply();
+    if (typeof ResizeObserver === "function") {
+      var ro = new ResizeObserver(apply);
+      ro.observe(node);
+      return function () { ro.disconnect(); };
+    }
+    var timer = setInterval(apply, 700);
+    return function () { clearInterval(timer); };
+  }
+
+  /* same idea for a canvas that should fill whatever height is left */
+  function fillHeight(node, reserve) {
+    if (!node) return function () {};
+    var gap = reserve || 0;
+    var pane = node.closest(".pane-body") || node.parentNode;
+    function apply() {
+      if (!pane) return;
+      var available = pane.clientHeight - gap;
+      node.style.height = Math.max(300, available) + "px";
+    }
+    apply();
+    setTimeout(apply, 60);
+    if (typeof ResizeObserver === "function") {
+      var ro = new ResizeObserver(apply);
+      ro.observe(pane);
+      return function () { ro.disconnect(); };
+    }
+    var timer = setInterval(apply, 700);
+    return function () { clearInterval(timer); };
+  }
+
   function get(id) { return open[id] || null; }
+
+  /* forget remembered geometry and lay every open window out afresh */
+  function relayout() {
+    S.allKeys().forEach(function (k) {
+      if (k.indexOf("win.") === 0) S.drop(k);
+    });
+    var ids = Object.keys(open);
+    ids.forEach(function (id, i) {
+      var api = open[id];
+      var fit = wanted(api.options || {});
+      api.node.classList.remove("max");
+      var left = S.clamp(
+        Math.round((window.innerWidth - fit.w) / 2) + (i - (ids.length - 1) / 2) * 32,
+        8, Math.max(8, window.innerWidth - fit.w - 8)
+      );
+      var top = S.clamp(
+        Math.round((window.innerHeight - fit.h) / 2) + (i - (ids.length - 1) / 2) * 24,
+        56, Math.max(56, window.innerHeight - fit.h - 32)
+      );
+      api.node.style.cssText = "left:" + left + "px;top:" + top + "px;" +
+        "width:" + fit.w + "px;height:" + fit.h + "px;z-index:" + (++zTop) + ";";
+      remember(api);
+    });
+    return ids.length;
+  }
+
+  function setSize(name) {
+    S.save("winSize", SIZES[name] ? name : "normal");
+    S.emit("winSize", name);
+    return relayout();
+  }
 
   function toggle(id, factory) {
     if (open[id]) { open[id].close(); return null; }
@@ -208,6 +313,12 @@
 
   global.Win = {
     create: create,
+    relayout: relayout,
+    watchWidth: watchWidth,
+    fillHeight: fillHeight,
+    setSize: setSize,
+    sizeName: sizeName,
+    SIZES: SIZES,
     get: get,
     toggle: toggle,
     focus: focus,

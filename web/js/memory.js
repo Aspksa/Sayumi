@@ -908,13 +908,14 @@
     }
     render();
     var off = S.on("memory", function () { if (Win.get("memory")) render(); });
+    var offWidth = Win.watchWidth(body, 780);
 
     Win.create({
       id: "memory",
       title: "Память Sayumi",
-      width: 780, height: 600,
+      weight: 0.96, weightH: 1, minWidth: 560, minHeight: 440,
       content: shell,
-      onClose: off
+      onClose: function () { off(); offWidth(); }
     });
   }
 
@@ -975,6 +976,7 @@
   function drawFacts(root, redraw) {
     var box = card(root, "Что она помнит",
       db.facts.length + " записей, предел " + LIMIT, "note");
+    box.parentNode.classList.add("wide");
 
     var tools = S.el("div", { class: "inline", style: "margin-bottom:12px" });
     var find = S.el("input", { class: "search", placeholder: "Поиск по памяти...", style: "flex:1" });
@@ -1099,16 +1101,14 @@
   function drawGraph(root, redraw) {
     var box = card(root, "Карта памяти",
       "записи связаны общими словами, цвет — по виду", "graph");
+    box.parentNode.classList.add("wide");
 
     if (db.facts.length < 2) {
       box.appendChild(S.el("div", { class: "empty", text: "Нужно хотя бы две записи" }));
       return;
     }
 
-    var holder = S.el("div", {
-      style: "position:relative;height:420px;border:var(--bw) solid var(--line-soft);" +
-             "border-radius:var(--r-m);overflow:hidden;background:var(--bg-0)"
-    });
+    var holder = S.el("div", { class: "grow-canvas" });
     var canvas = S.el("canvas", { style: "position:absolute;inset:0;width:100%;height:100%;cursor:grab" });
     var label = S.el("div", {
       class: "note tiny",
@@ -1118,6 +1118,8 @@
     holder.appendChild(canvas);
     holder.appendChild(label);
     box.appendChild(holder);
+    /* the graph takes whatever height the window leaves after the legend */
+    var offHeight = Win.fillHeight(holder, 190);
 
     var KIND_HUE = {
       user: "#6f94c0", pref: "#c9a227", project: "#5f9c7b",
@@ -1304,7 +1306,11 @@
       var stop = function () { cancelAnimationFrame(raf); };
       holder.addEventListener("DOMNodeRemoved", stop);
       var guard = setInterval(function () {
-        if (!document.body.contains(canvas)) { stop(); clearInterval(guard); }
+        if (!document.body.contains(canvas)) {
+          stop();
+          offHeight();
+          clearInterval(guard);
+        }
       }, 1200);
     }
   }
@@ -1313,6 +1319,7 @@
   function drawTimeline(root, redraw) {
     var box = card(root, "Хроника знаний",
       "что она узнала и когда; ползунок показывает память на дату", "refresh");
+    box.parentNode.classList.add("wide");
 
     if (!db.facts.length) {
       box.appendChild(S.el("div", { class: "empty", text: "Пока нечего вспоминать" }));
@@ -1458,6 +1465,7 @@
 
   function drawLog(root, redraw) {
     var box = card(root, "Журнал памяти", "последние события", "task");
+    box.parentNode.classList.add("wide");
     if (!db.log.length) {
       box.appendChild(S.el("div", { class: "empty", text: "Пока ничего не происходило" }));
       return;

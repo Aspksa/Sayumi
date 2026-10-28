@@ -211,8 +211,10 @@
     win = Win.create({
       id: "chat",
       title: "Sayumi — " + S.t("chat"),
-      width: Math.min(980, window.innerWidth - 60),
-      height: Math.min(640, window.innerHeight - 110),
+      weight: 1,
+      weightH: 1,
+      minWidth: 560,
+      minHeight: 420,
       content: root,
       onClose: function () { win = null; stopStream(); }
     });

@@ -112,8 +112,10 @@
     Win.create({
       id: "persona",
       title: data.name + " — " + S.t("persona"),
-      width: 620,
-      height: 580,
+      weight: 0.72,
+      weightH: 0.94,
+      minWidth: 460,
+      minHeight: 440,
       content: pane
     });
   }

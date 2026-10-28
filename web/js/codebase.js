@@ -283,7 +283,10 @@
     }
 
     render();
-    Win.create({ id: "codebase", title: "Проект", width: 720, height: 600, content: pane });
+    Win.create({
+      id: "codebase", title: "Проект", content: pane,
+      weight: 0.88, weightH: 1, minWidth: 520, minHeight: 440
+    });
   }
 
   /* small local copies so this file does not depend on the settings module */

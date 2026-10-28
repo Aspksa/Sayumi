@@ -56,12 +56,16 @@
          data: drawData, about: drawAbout })[active](body, render);
     }
     render();
+    var offWidth = Win.watchWidth(body, 820);
 
     Win.create({
       id: "settings",
+      onClose: offWidth,
       title: S.t("settings"),
-      width: 820,
-      height: 620,
+      weight: 1,
+      weightH: 1,
+      minWidth: 580,
+      minHeight: 460,
       content: shell
     });
   }
@@ -278,10 +282,12 @@
 
     var secPreview = section(root, "Предпросмотр",
       "Макет меняется вместе с настройками ниже", "sparkle");
+    secPreview.parentNode.classList.add("wide");
     secPreview.appendChild(liveMock());
 
     var sec0 = section(root, "Готовые сочетания",
       "Подобранные пары фона и акцента", "star");
+    sec0.parentNode.classList.add("wide");
     var grid = S.el("div", { class: "tiles" });
     Theme.PRESETS.forEach(function (p) {
       grid.appendChild(presetTile(p, st.preset === p.id, function () {
@@ -390,7 +396,29 @@
     sec2.appendChild(acts2);
 
     var sec3 = section(root, "Окна", "Положение и размеры панелей", "frame");
+
+    rowSelect(sec3, "Размер окон", [
+      ["compact", "Компактно"],
+      ["normal", "Обычно"],
+      ["roomy", "Просторно"],
+      ["huge", "Почти во весь экран"]
+    ], Win.sizeName(), function (v) {
+      var moved = Win.setSize(v);
+      S.toast(moved ? "Применено к открытым окнам: " + moved : "Новые окна будут такого размера", "ok");
+    }, "Доля экрана, которую занимает новое окно");
+
+    var share = Math.round(Win.SIZES[Win.sizeName()] * 100);
+    sec3.appendChild(S.el("div", { class: "note tiny", style: "margin:-4px 0 10px",
+      text: "Сейчас окно занимает около " + share + "% ширины экрана. " +
+            "Размер каждого окна запоминается отдельно, как только вы его потянете." }));
+
     var acts3 = S.el("div", { class: "inline" });
+    var bFit = S.el("button", { class: "btn primary", text: "Разложить заново" });
+    bFit.addEventListener("click", function () {
+      var moved = Win.relayout();
+      S.toast(moved ? "Переразложено окон: " + moved : "Открытых окон нет", "ok");
+    });
+    acts3.appendChild(bFit);
     var bWins = S.el("button", { class: "btn", text: "Сбросить положение окон" });
     bWins.addEventListener("click", function () {
       S.allKeys().forEach(function (k) { if (k.indexOf("win.") === 0) S.drop(k); });
