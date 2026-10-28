@@ -69,12 +69,23 @@ _write_lock = threading.Lock()
 # --------------------------------------------------------------------------- #
 #  helpers
 # --------------------------------------------------------------------------- #
+_log_file = None
+
+
 def log(message: str) -> None:
     stamp = time.strftime("%H:%M:%S")
+    line = "[%s] %s" % (stamp, message)
     try:
-        print("[%s] %s" % (stamp, message), flush=True)
+        print(line, flush=True)
     except Exception:
         pass
+    # a copy on disk, so a launcher can show why a start failed
+    if _log_file:
+        try:
+            _log_file.write(line + "\n")
+            _log_file.flush()
+        except Exception:
+            pass
 
 
 def ensure_dir(path: str) -> str:
@@ -659,7 +670,16 @@ def main() -> int:
     parser.add_argument("--data", default="")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--no-pick-port", action="store_true")
+    parser.add_argument("--log", default="", help="mirror the log into this file")
     args = parser.parse_args()
+
+    global _log_file
+    if args.log:
+        try:
+            ensure_dir(os.path.dirname(os.path.abspath(args.log)))
+            _log_file = open(args.log, "w", encoding="utf-8")
+        except OSError:
+            _log_file = None
 
     root = os.path.abspath(args.root)
     STATE["root"] = root
@@ -695,4 +715,16 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except SystemExit:
+        raise
+    except Exception:
+        # whatever went wrong must end up in the log the launcher reads
+        import traceback
+        detail = traceback.format_exc()
+        log("ОШИБКА ЗАПУСКА")
+        log(detail)
+        if not _log_file:
+            print(detail, file=sys.stderr)
+        sys.exit(1)

@@ -198,28 +198,53 @@ set "OPT_FIRSTRUN=0"
 call :save_config
 call :ok "!T_RUN_SERVER! http://127.0.0.1:!OPT_PORT!"
 echo.
+set "SRVLOG=%LOGDIR%\server.log"
 pushd "%ROOT%"
-start "Sayumi Server" /min "!PY!" "%SRV%\server.py" --port !OPT_PORT! --root "%ROOT%" --data "%OPT_DATA%"
+rem  no nested quotes and no redirection here: the server writes its own log,
+rem  because cmd mangles  start ... cmd /c "" ... > "" "  in ways that differ
+rem  between Windows versions
+start "Sayumi Server" /min "!PY!" "%SRV%\server.py" --port !OPT_PORT! --root "%ROOT%" --data "%OPT_DATA%" --log "!SRVLOG!"
 popd
 call :wait_port !OPT_PORT!
-if errorlevel 1 (
-  call :warn "!T_RUN_SLOW!"
-)
-call :open_url "http://127.0.0.1:!OPT_PORT!/"
+call :probe_server !OPT_PORT!
+if not defined SERVER_OK goto :run_failed
+
+set "SITE_URL=http://127.0.0.1:!OPT_PORT!/"
+call :open_url "!SITE_URL!"
 call :ok "!T_RUN_DONE!"
 echo.
 echo   !T_RUN_STOP!
 goto :after_run
 
+:run_failed
+echo.
+call :err "!T_RUN_NOSRV!"
+echo.
+if exist "!SRVLOG!" (
+  echo   !T_RUN_LOGTAIL!
+  call :line
+  powershell -NoProfile -Command "Get-Content -LiteralPath '!SRVLOG!' -Tail 12" 2>nul
+  call :line
+)
+echo.
+echo   !T_RUN_TRYFILE!
+set "OPT_FIRSTRUN=0"
+call :save_config
+set "SITE_URL=%WEB%\index.html"
+call :open_url "%WEB%\index.html"
+goto :after_run
+
 :run_attach
-call :ok "!T_RUN_ALREADY! http://127.0.0.1:!OPT_PORT!/"
-call :open_url "http://127.0.0.1:!OPT_PORT!/"
+set "SITE_URL=http://127.0.0.1:!OPT_PORT!/"
+call :ok "!T_RUN_ALREADY! !SITE_URL!"
+call :open_url "!SITE_URL!"
 goto :after_run
 
 :run_offline
 call :warn "!T_RUN_FILE!"
 set "OPT_FIRSTRUN=0"
 call :save_config
+set "SITE_URL=%WEB%\index.html"
 call :open_url "%WEB%\index.html"
 goto :after_run
 
@@ -227,15 +252,38 @@ goto :after_run
 echo.
 call :line
 echo.
+call :after_status
 if not defined AUTO goto :after_run_menu
 if /i "%OPT_AUTOCLOSE%"=="on" goto :after_run_timed
 echo   !T_AUTO_READY!
-echo   !T_AUTO_KEYS!
+echo   !T_RUN_KEYS!
 echo.
 where choice >nul 2>&1
 if errorlevel 1 goto :after_run_menu
-choice /c MZ /n >nul 2>&1
-if errorlevel 2 goto :bye
+choice /c OBLMZ /n >nul 2>&1
+if errorlevel 5 goto :bye
+if errorlevel 4 goto :after_menu
+if errorlevel 3 goto :after_logs
+if errorlevel 2 goto :after_tab
+if errorlevel 1 goto :after_again
+goto :bye
+
+:after_again
+if defined SITE_URL call :open_url "!SITE_URL!"
+goto :after_run
+
+:after_tab
+set "KEEP_WINDOW=%OPT_WINDOW%"
+set "OPT_WINDOW=tab"
+if defined SITE_URL call :open_url "!SITE_URL!"
+set "OPT_WINDOW=%KEEP_WINDOW%"
+goto :after_run
+
+:after_logs
+if exist "%LOGDIR%" start "" "%LOGDIR%"
+goto :after_run
+
+:after_menu
 set "AUTO="
 goto :menu
 
@@ -253,6 +301,18 @@ goto :menu
 echo   !T_ANY_KEY!
 pause >nul
 goto :menu
+
+:after_status
+echo.
+if defined SITE_URL echo   !T_RUN_ADDR! !SITE_URL!
+call :find_browser
+if defined APP_EXE if /i "%OPT_WINDOW%"=="app" (
+  echo   !T_RUN_BROWSER! !APP_EXE!
+) else (
+  echo   !T_RUN_BROWSER! !T_RUN_DEFBROWSER!
+)
+echo.
+goto :eof
 
 
 rem ============================================================================
@@ -935,6 +995,23 @@ if /i "%OPT_PORTABLE%"=="auto" set "OPT_PORTABLE=off"
 if /i "%OPT_PORTABLE%"=="on" set "OPT_DATA=%ROOT%\data"
 goto :eof
 
+:probe_server
+rem  the port being open is not proof: something else may hold it, or the
+rem  server may have died right after binding. Ask it who it is.
+set "SERVER_OK="
+where curl.exe >nul 2>&1
+if errorlevel 1 goto :probe_fallback
+curl.exe -s --max-time 6 "http://127.0.0.1:%~1/api/health" 2>nul | find "Sayumi" >nul
+if errorlevel 1 goto :eof
+set "SERVER_OK=1"
+goto :eof
+:probe_fallback
+rem  without curl, fall back to the port being open at all
+netstat -ano 2>nul | find ":%~1 " >nul
+if errorlevel 1 goto :eof
+set "SERVER_OK=1"
+goto :eof
+
 :check_running
 set "ALREADY="
 netstat -ano 2>nul | find ":%OPT_PORT% " >nul
@@ -977,7 +1054,9 @@ if not defined APP_EXE goto :ou_plain
 rem a local path has to become a file url before Chrome will take it
 echo %URL% | find "://" >nul
 if errorlevel 1 call :to_file_url
-start "" "%APP_EXE%" --app="%URL%" --window-size=1280,880
+rem  the comma in window-size is a cmd token separator, so the whole flag
+rem  is quoted or Chrome receives a stray 880 as a second page to open
+start "" "%APP_EXE%" --app="%URL%" "--window-size=1280,880"
 goto :eof
 
 :to_file_url
@@ -1086,14 +1165,19 @@ set "T_AUTO_NOPY=Python не найден, ставлю переносимую �
 set "T_AUTO_PYFAIL=Установить Python не вышло, открываю интерфейс без сервера."
 set "T_AUTO_CLOSE=Окно закроется само. Нажмите M, чтобы открыть меню."
 set "T_AUTO_READY=Sayumi работает в браузере. Это окно можно закрыть, она продолжит работать."
-set "T_AUTO_KEYS=Нажмите M для меню или Z, чтобы закрыть это окно."
+set "T_RUN_KEYS=O - открыть снова, B - обычная вкладка, L - логи, M - меню, Z - закрыть окно."
+set "T_RUN_ADDR=Адрес     :"
+set "T_RUN_BROWSER=Браузер   :"
+set "T_RUN_DEFBROWSER=по умолчанию"
+set "T_RUN_NOSRV=Сервер не отвечает. Сайт по адресу не откроется."
+set "T_RUN_LOGTAIL=Последние строки журнала сервера:"
+set "T_RUN_TRYFILE=Открываю интерфейс напрямую из файла, без сервера."
 set "T_O_AUTOCLOSE=Закрывать это окно    :"
 set "T_RUN_ALREADY=Sayumi уже запущена, открываю:"
 set "T_RUN_PREP=Подготовка к запуску..."
 set "T_RUN_SERVER=Сервер:"
 set "T_RUN_DONE=Готово. Браузер открыт."
 set "T_RUN_STOP=Чтобы остановить сервер, закройте окно Sayumi Server."
-set "T_RUN_SLOW=Сервер отвечает медленно, открываю браузер."
 set "T_RUN_FILE=Запуск без сервера, прямо из файла. Часть функций будет ограничена."
 set "T_ERR_NOWEB=Не найден веб-интерфейс:"
 set "T_WARN_NOPY=Python не найден. Выберите вариант:"
@@ -1193,14 +1277,19 @@ set "T_AUTO_NOPY=Python not found, installing a portable copy into the project f
 set "T_AUTO_PYFAIL=Could not install Python, opening the interface without a server."
 set "T_AUTO_CLOSE=This window closes by itself. Press M to open the menu."
 set "T_AUTO_READY=Sayumi is running in the browser. You can close this window, it keeps working."
-set "T_AUTO_KEYS=Press M for the menu, or Z to close this window."
+set "T_RUN_KEYS=O - open again, B - plain tab, L - logs, M - menu, Z - close this window."
+set "T_RUN_ADDR=Address   :"
+set "T_RUN_BROWSER=Browser   :"
+set "T_RUN_DEFBROWSER=system default"
+set "T_RUN_NOSRV=The server is not answering. The address will not open."
+set "T_RUN_LOGTAIL=Last lines of the server log:"
+set "T_RUN_TRYFILE=Opening the interface straight from the file instead."
 set "T_O_AUTOCLOSE=Close this window     :"
 set "T_RUN_ALREADY=Sayumi is already running, opening:"
 set "T_RUN_PREP=Preparing to start..."
 set "T_RUN_SERVER=Server:"
 set "T_RUN_DONE=Done. Browser opened."
 set "T_RUN_STOP=To stop the server close the Sayumi Server window."
-set "T_RUN_SLOW=Server is slow to answer, opening the browser anyway."
 set "T_RUN_FILE=Starting without a server, directly from file. Some features are limited."
 set "T_ERR_NOWEB=Web interface not found:"
 set "T_WARN_NOPY=Python not found. Choose an option:"

@@ -6,6 +6,7 @@ const path = require("path");
 
 const suites = [
   { name: "модули", file: "unit.js" },
+  { name: "сервер", file: "server.js" },
   { name: "браузер", file: "browser.js" }
 ];
 
