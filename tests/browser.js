@@ -796,6 +796,96 @@ async function waitFor(url, tries = 40) {
       await page.evaluate(() => Object.keys(Win.open).forEach((k) => Win.open[k].close()));
     });
 
+    /* ----------------------------------------------------------- contrast */
+    describe("читаемость");
+    await it("текст проходит норму контраста на всех фонах", async () => {
+      const bad = await page.evaluate(() => {
+        const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+        const lum = (css) => {
+          const m = css.match(/\d+/g).map(Number);
+          return 0.2126 * lin(m[0]) + 0.7152 * lin(m[1]) + 0.0722 * lin(m[2]);
+        };
+        const ratio = (a, b) => {
+          const x = lum(a), y = lum(b);
+          return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+        };
+        const probe = document.createElement("div");
+        document.body.appendChild(probe);
+        const problems = [];
+        const backgrounds = ["black", "coal", "graphite", "obsidian", "midnight", "wenge"];
+        const was = document.documentElement.getAttribute("data-bg");
+
+        backgrounds.forEach((bg) => {
+          Theme.set({ bg: bg, contrast: "normal" });
+          const cs = getComputedStyle(document.documentElement);
+          const surfaces = ["--bg-0", "--bg-1", "--bg-2", "--bg-3"].map((v) => {
+            probe.style.color = cs.getPropertyValue(v).trim();
+            return getComputedStyle(probe).color;
+          });
+          ["--txt", "--dim", "--faint"].forEach((role) => {
+            probe.style.color = cs.getPropertyValue(role).trim();
+            const fg = getComputedStyle(probe).color;
+            surfaces.forEach((surface, i) => {
+              const r = ratio(fg, surface);
+              if (r < 4.5) problems.push(bg + " " + role + " на bg-" + i + ": " + r.toFixed(2));
+            });
+          });
+        });
+        Theme.set({ bg: was });
+        probe.remove();
+        return problems;
+      });
+      eq(bad, [], "каждый цвет текста обязан давать минимум 4.5:1");
+    });
+
+    await it("повышенный контраст действительно светлее", async () => {
+      const shades = await page.evaluate(() => {
+        const read = () => getComputedStyle(document.documentElement).getPropertyValue("--faint").trim();
+        const out = {};
+        ["normal", "high", "max"].forEach((level) => {
+          Theme.set({ contrast: level });
+          out[level] = read();
+        });
+        Theme.set({ contrast: "normal" });
+        return out;
+      });
+      ok(shades.normal !== shades.high && shades.high !== shades.max,
+        "уровни должны отличаться: " + JSON.stringify(shades));
+    });
+
+    await it("нигде не осталось текста мельче 11 точек", async () => {
+      const tiny = await page.evaluate(() => {
+        Chat.openWindow();
+        Settings.openWindow();
+        const seen = new Set();
+        document.querySelectorAll(".win *").forEach((el) => {
+          if (!el.textContent || !el.textContent.trim()) return;
+          if (el.children.length) return;
+          /* the theme preview is a scale model of the interface, not text to
+             read, so its deliberately tiny type is not a legibility problem */
+          if (el.closest(".mock") || el.closest(".tile")) return;
+          const size = parseFloat(getComputedStyle(el).fontSize);
+          if (size < 11) seen.add(el.className + " " + size.toFixed(1));
+        });
+        Object.keys(Win.open).forEach((k) => Win.open[k].close());
+        return [...seen];
+      });
+      eq(tiny, []);
+    });
+
+    await it("у заголовков нет размывающей тени", async () => {
+      const blurred = await page.evaluate(() => {
+        const probe = document.createElement("h1");
+        probe.className = "welcome-probe";
+        const host = document.querySelector(".welcome");
+        host.appendChild(probe);
+        const shadow = getComputedStyle(host.querySelector("h1")).textShadow;
+        probe.remove();
+        return shadow;
+      });
+      ok(blurred === "none" || blurred === "", "ожидалось отсутствие тени, получено " + blurred);
+    });
+
     describe("консоль");
     await it("ни одной ошибки за весь прогон", () => {
       eq(errors, []);

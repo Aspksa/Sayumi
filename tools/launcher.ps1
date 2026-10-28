@@ -3,7 +3,7 @@ param([string]$Action = '', [switch]$LibraryOnly)
 $ErrorActionPreference = 'Stop'
 $script:Root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $script:ConfigPath = Join-Path $Root 'Sayumi.config.json'
-$script:Config = @{ Language='RU'; Data=(Join-Path $Root 'data'); Port=8723; Python=''; Browser='default'; Window='app'; Portable='auto' }
+$script:Config = @{ Language='RU'; Data=(Join-Path $Root 'data'); Port=8723; Python=''; Browser='default'; Window='app'; AutoClose='off'; Portable='auto' }
 function Text($ru, $en) { if ($script:Config.Language -eq 'EN') { $en } else { $ru } }
 function FullPath([string]$Path) {
     if ([string]::IsNullOrWhiteSpace($Path)) { throw 'Empty path.' }
@@ -34,7 +34,7 @@ function LoadConfig {
     } else {
         # Parse only literal assignments. Never execute the legacy CMD file.
         $legacy = Join-Path $Root 'Sayumi.config.cmd'
-        $map = @{ OPT_LANG='Language'; OPT_DATA='Data'; OPT_PORT='Port'; OPT_PYTHON='Python'; OPT_BROWSER='Browser'; OPT_WINDOW='Window'; OPT_PORTABLE='Portable' }
+        $map = @{ OPT_LANG='Language'; OPT_DATA='Data'; OPT_PORT='Port'; OPT_PYTHON='Python'; OPT_BROWSER='Browser'; OPT_WINDOW='Window'; OPT_AUTOCLOSE='AutoClose'; OPT_PORTABLE='Portable' }
         if (Test-Path -LiteralPath $legacy) {
             foreach ($line in Get-Content -LiteralPath $legacy -Encoding UTF8) {
                 if ($line -match '^set "(OPT_[A-Z]+)=(.*)"$' -and $map.ContainsKey($matches[1])) { $script:Config[$map[$matches[1]]] = $matches[2] }
@@ -154,11 +154,25 @@ function Browser([string]$Url) {
     }
     Start-Process $Url
 }
+function AfterRun([string]$Url) {
+    Write-Host (Text "Сервер отвечает. Адрес: $Url" "Server ready. Address: $Url")
+    if ($script:Config.AutoClose -eq 'on') { return }
+    while ($true) {
+        Write-Host (Text 'O Открыть снова | B Обычная вкладка | L Журналы | M Меню | Z Закрыть лаунчер (сервер продолжит работу)' 'O Open again | B Browser tab | L Logs | M Menu | Z Close launcher (server stays running)')
+        switch ((Read-Host '>').ToUpperInvariant()) {
+            'O' { Browser $Url }
+            'B' { $previous=$script:Config.Window; try { $script:Config.Window='tab'; Browser $Url } finally { $script:Config.Window=$previous } }
+            'L' { Start-Process explorer.exe -ArgumentList (QuoteArg (Join-Path $Root 'logs')) }
+            'M' { return }
+            'Z' { exit 0 }
+        }
+    }
+}
 function RunApp {
     $python = FindPython
     if (-not $python) { $python = InstallPython }
     if (-not (Test-Path -LiteralPath (Join-Path $Root 'web\index.html'))) { throw 'Missing web/index.html.' }
-    if (MatchesInstance (Health $script:Config.Port)) { Browser "http://127.0.0.1:$($script:Config.Port)/"; return }
+    if (MatchesInstance (Health $script:Config.Port)) { Browser "http://127.0.0.1:$($script:Config.Port)/"; AfterRun "http://127.0.0.1:$($script:Config.Port)/"; return }
     $port = FreePort (ValidPort $script:Config.Port)
     [IO.Directory]::CreateDirectory($script:Config.Data) | Out-Null
     $logs = Join-Path $Root 'logs'; [IO.Directory]::CreateDirectory($logs) | Out-Null
@@ -168,7 +182,7 @@ function RunApp {
     for ($i=0; $i -lt 40; $i++) {
         $process.Refresh()
         if ($process.HasExited) { throw "Server exited ($($process.ExitCode)). See $logs\$id.err.log" }
-        if (MatchesInstance (Health $port)) { $script:Config.Port=$port; SaveConfig; Browser "http://127.0.0.1:$port/"; return }
+        if (MatchesInstance (Health $port)) { $script:Config.Port=$port; SaveConfig; Browser "http://127.0.0.1:$port/"; AfterRun "http://127.0.0.1:$port/"; return }
         Start-Sleep -Milliseconds 250
     }
     if (-not $process.HasExited) { $process.Kill() }
@@ -267,7 +281,7 @@ function PythonMenu {
     }
 }
 function OptionsMenu {
-    Write-Host (Text '1 Порт  2 Браузер  3 Окно/вкладка  4 Переносимый режим  5 Данные  6 Логи  7 Сброс' '1 Port  2 Browser  3 Window/tab  4 Portable mode  5 Data  6 Logs  7 Reset')
+    Write-Host (Text '1 Порт  2 Браузер  3 Окно/вкладка  4 Переносимый режим  5 Данные  6 Логи  7 Сброс  8 Закрывать лаунчер автоматически' '1 Port  2 Browser  3 Window/tab  4 Portable mode  5 Data  6 Logs  7 Reset  8 Auto-close launcher')
     switch (Read-Host '>') {
         '1' { $script:Config.Port=ValidPort (Read-Host 'Port'); SaveConfig }
         '2' { $b=Read-Host 'default / chrome / msedge / firefox'; if ($b -notin 'default','chrome','msedge','firefox') { throw 'Unknown browser.' }; $script:Config.Browser=$b; SaveConfig }
@@ -275,6 +289,7 @@ function OptionsMenu {
         '4' { if ($script:Config.Portable -eq 'on') { $script:Config.Portable='off' } else { ChangeData (Join-Path $Root 'data'); $script:Config.Portable='on' }; SaveConfig }
         '5' { Start-Process explorer.exe -ArgumentList (QuoteArg $script:Config.Data) }
         '6' { Start-Process explorer.exe -ArgumentList (QuoteArg (Join-Path $Root 'logs')) }
+        '8' { $script:Config.AutoClose=if ($script:Config.AutoClose -eq 'on') {'off'} else {'on'}; SaveConfig }
         '7' { if ((Read-Host 'Reset? Y/N') -eq 'Y') { foreach ($name in 'Sayumi.config.json','Sayumi.config.cmd') { $p=Join-Path $Root $name; if (Test-Path -LiteralPath $p) { Move-Item -LiteralPath $p -Destination ($p+'.backup-'+[guid]::NewGuid().ToString('N')) } }; exit 0 } }
     }
 }
@@ -312,11 +327,11 @@ try {
         { $_ -in '/help','/?','-h' } { Write-Host 'Sayumi.bat [/run | /menu | /setup | /help]'; exit 0 }
         { $_ -in '/menu','-menu' } { Menu; exit 0 }
         '/setup' { PythonMenu; exit 0 }
-        { $_ -in '/run','-run' } { RunApp; exit 0 }
+        { $_ -in '/run','-run' } { RunApp; if ($script:Config.AutoClose -ne 'on') { Menu }; exit 0 }
         '' {
             Write-Host (Text 'Запуск через 3 секунды. Нажмите M для меню.' 'Starting in 3 seconds. Press M for menu.')
             & choice.exe /c MZ /n /t 3 /d Z | Out-Null
-            if ($LASTEXITCODE -eq 1) { Menu } else { RunApp }
+            if ($LASTEXITCODE -eq 1) { Menu } else { RunApp; if ($script:Config.AutoClose -ne 'on') { Menu } }
         }
         default { throw 'Unknown argument. Use /help.' }
     }

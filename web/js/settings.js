@@ -160,6 +160,7 @@
         '<div class="m-main">' +
           '<span class="m-line w70"></span><span class="m-line"></span><span class="m-line w45"></span>' +
           '<div class="m-quote">так выглядит цитата</div>' +
+          '<div style="font-size:10px;color:var(--faint);margin-top:2px">мелкая подпись</div>' +
           '<div class="m-btn">Кнопка</div>' +
         "</div>" +
       "</div>";
@@ -348,7 +349,15 @@
       ["compact", "Плотно"], ["cozy", "Обычно"], ["roomy", "Просторно"]
     ], st.density, function (v) { Theme.set({ density: v }); });
 
-    rowRange(sec3, "Размер шрифта", st.fontScale, 85, 125, 1,
+    rowSelect(sec3, "Контраст текста", [
+      ["normal", "Обычный"],
+      ["high", "Повышенный"],
+      ["max", "Максимальный"]
+    ], st.contrast || "normal", function (v) {
+      Theme.set({ contrast: v });
+    }, "Яркость подписей и пояснений");
+
+    rowRange(sec3, "Размер шрифта", st.fontScale, 85, 150, 1,
       function (v) { Theme.set({ fontScale: v }); }, " %");
 
     rowSwitch(sec3, "Свечение акцента", st.glow === "on",
