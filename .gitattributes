@@ -1,5 +1,6 @@
-# Keep the Windows launcher and its helpers byte-exact: CRLF, no BOM.
-*.bat text eol=crlf
+# Sayumi.bat is stored verbatim (CRLF, no BOM) so even a raw download from
+# the web UI stays a valid Windows batch file.
+*.bat -text
 *.cmd text eol=crlf
 *.ps1 text eol=crlf
 
