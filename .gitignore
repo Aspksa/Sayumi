@@ -10,3 +10,6 @@ portable.flag
 Thumbs.db
 desktop.ini
 .DS_Store
+
+Sayumi.config.json
+Sayumi.config.*.backup-*

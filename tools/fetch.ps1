@@ -1,21 +1,18 @@
-# Sayumi: download a file with retries. exit 0 on success
-param([string]$Url, [string]$Out, [int]$Retries = 3)
-$ErrorActionPreference = 'Stop'
-$ProgressPreference = 'SilentlyContinue'
-try {
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls11
-} catch { }
-for ($i = 1; $i -le $Retries; $i++) {
+# Download into the caller's temporary path; throw on every unsuccessful outcome.
+param([Parameter(Mandatory=$true)][string]$Url, [Parameter(Mandatory=$true)][string]$Out, [int]$Retries=3)
+$ErrorActionPreference='Stop'
+$ProgressPreference='SilentlyContinue'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+if (([uri]$Url).Scheme -ne 'https') { throw 'HTTPS is required.' }
+for ($i=1; $i -le $Retries; $i++) {
     try {
-        Invoke-WebRequest -Uri $Url -OutFile $Out -UseBasicParsing
-        if (Test-Path -LiteralPath $Out) { exit 0 }
+        Invoke-WebRequest -Uri $Url -OutFile $Out -UseBasicParsing -TimeoutSec 120
+        if (-not (Test-Path -LiteralPath $Out) -or (Get-Item -LiteralPath $Out).Length -eq 0) { throw 'Empty response.' }
+        return
     } catch {
-        Write-Host ("attempt {0} failed: {1}" -f $i, $_.Exception.Message)
-        Start-Sleep -Seconds ($i * 2)
+        if (Test-Path -LiteralPath $Out) { Remove-Item -LiteralPath $Out -Force }
+        if ($i -eq $Retries) { throw }
+        Start-Sleep -Seconds ($i*2)
     }
 }
-try {
-    (New-Object Net.WebClient).DownloadFile($Url, $Out)
-    if (Test-Path -LiteralPath $Out) { exit 0 }
-} catch { }
-exit 1
+throw 'Download did not complete.'
