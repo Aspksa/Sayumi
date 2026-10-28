@@ -71,7 +71,7 @@ try {
     [IO.File]::WriteAllText((Join-Path $newRuntime 'python.exe'),'new runtime')
     PromoteRuntime $newRuntime $oldRuntime
     Check ((Get-Content -LiteralPath (Join-Path $oldRuntime 'python.exe') -Raw) -eq 'new runtime') 'Runtime replacement failed.'
-    Check (@(Get-ChildItem -LiteralPath $testRoot -Directory -Filter 'runtime-backup-*').Count -eq 1) 'Previous runtime backup missing.'
+    Check (@(Get-ChildItem -LiteralPath $testRoot -Filter 'runtime-backup-*' | Where-Object { $_.PSIsContainer }).Count -eq 1) 'Previous runtime backup missing.'
     $listener=New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback,0)
     try {
         $listener.Start()
@@ -79,6 +79,17 @@ try {
         if ($busy -lt 65535) { Check ((FreePort $busy) -gt $busy) 'Busy port selected.' }
     } finally { $listener.Stop() }
     Check (-not (TestPython (Join-Path $testRoot 'missing-python.exe'))) 'Missing Python accepted.'
+    # Missing drives/directories must not abort Python discovery. Files with a
+    # matching name must not be treated as installation directories.
+    Check (@(PythonDirectories (Join-Path $testRoot 'missing-drive')).Count -eq 0) 'Missing search path aborted discovery.'
+    Check (@(PythonDirectories '').Count -eq 0) 'Empty search path aborted discovery.'
+    $search=Join-Path $testRoot 'python-search'
+    [IO.Directory]::CreateDirectory((Join-Path $search 'Python312')) | Out-Null
+    [IO.Directory]::CreateDirectory((Join-Path $search 'Unrelated')) | Out-Null
+    [IO.File]::WriteAllText((Join-Path $search 'Python399'),'not a directory')
+    $found=@(PythonDirectories $search)
+    Check ($found.Count -eq 1 -and $found[0] -eq (Join-Path $search 'Python312\python.exe')) 'Python discovery did not filter directories correctly.'
+    Check (@(PythonDirectories (Join-Path $search 'Python399')).Count -eq 0) 'File accepted as search base.'
     # Real fetch helper must delete a partial file when the transport fails.
     function Invoke-WebRequest { param($Uri,$OutFile,[switch]$UseBasicParsing,$TimeoutSec); [IO.File]::WriteAllText($OutFile,'partial'); throw 'Simulated network failure' }
     $partial=Join-Path $testRoot 'download.part'

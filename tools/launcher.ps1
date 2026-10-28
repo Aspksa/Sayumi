@@ -71,6 +71,14 @@ function TestPython([string]$Exe) {
         return $LASTEXITCODE -eq 0 -and $output -contains 'SAYUMI_PY_OK'
     } catch { return $false }
 }
+function PythonDirectories([string]$Base) {
+    # -Directory is a dynamic provider parameter and may fail to bind when a
+    # drive/path is unavailable. Check the path first and filter returned items.
+    if (-not $Base -or -not (Test-Path -LiteralPath $Base -PathType Container -ErrorAction SilentlyContinue)) { return }
+    Get-ChildItem -LiteralPath $Base -Filter 'Python3*' -ErrorAction SilentlyContinue |
+        Where-Object { $_.PSIsContainer } |
+        ForEach-Object { Join-Path $_.FullName 'python.exe' }
+}
 function FindPython {
     $candidates = @($script:Config.Python, (Join-Path $Root 'runtime\python\python.exe'))
     $py = Get-Command py.exe -ErrorAction SilentlyContinue
@@ -85,7 +93,7 @@ function FindPython {
         }
     }
     foreach ($base in @((Join-Path $env:LOCALAPPDATA 'Programs\Python'), $env:ProgramFiles, ${env:ProgramFiles(x86)}, 'C:\', 'D:\')) {
-        if ($base) { $candidates += @(Get-ChildItem -LiteralPath $base -Directory -Filter 'Python3*' -ErrorAction SilentlyContinue | ForEach-Object { Join-Path $_.FullName 'python.exe' }) }
+        $candidates += @(PythonDirectories $base)
     }
     foreach ($candidate in $candidates | Select-Object -Unique) { if (TestPython $candidate) { return $candidate } }
     return $null
