@@ -1,0 +1,12 @@
+# runtime and local state
+/data/
+/logs/
+/.tmp/
+/runtime/
+Sayumi.config.cmd
+portable.flag
+
+# os noise
+Thumbs.db
+desktop.ini
+.DS_Store

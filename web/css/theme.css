@@ -1,0 +1,127 @@
+/* ==========================================================================
+   Sayumi - theme tokens
+   Backgrounds and accents are swappable from the project settings panel.
+   ========================================================================== */
+
+:root {
+  /* surfaces */
+  --bg-0: #000000;
+  --bg-1: #0b0b0d;
+  --bg-2: #121216;
+  --bg-3: #191920;
+  --line: #262630;
+  --line-soft: #1b1b22;
+
+  /* text */
+  --txt: #e8e6e1;
+  --dim: #8e8b85;
+  --faint: #5d5b57;
+
+  /* accent */
+  --acc: #c9a227;
+  --acc-soft: #a8871f;
+  --acc-bright: #e0bb45;
+  --acc-ink: #10100c;
+  --acc-rgb: 201, 162, 39;
+
+  /* state */
+  --ok: #5e9c7a;
+  --warn: #c99a3f;
+  --bad: #a85450;
+
+  /* shape */
+  --r-s: 6px;
+  --r-m: 10px;
+  --r-l: 16px;
+  --gap: 12px;
+  --fs: 14px;
+  --accent-alpha: 1;
+  --glow: 0 0 22px rgba(var(--acc-rgb), 0.18);
+  --speed: 180ms;
+
+  --font-ui: "Segoe UI", "Inter", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Mono", "Consolas", "SFMono-Regular", monospace;
+}
+
+/* ------------------------------------------------------------ backgrounds */
+html[data-bg="black"] {
+  --bg-0: #000000; --bg-1: #0a0a0c; --bg-2: #111115; --bg-3: #18181e;
+  --line: #26262f; --line-soft: #1a1a21;
+}
+html[data-bg="graphite"] {
+  --bg-0: #15171a; --bg-1: #1b1e22; --bg-2: #22262c; --bg-3: #2a2f36;
+  --line: #343a43; --line-soft: #262b32;
+  --txt: #e6e8ea; --dim: #949aa3; --faint: #666c75;
+}
+html[data-bg="obsidian"] {
+  --bg-0: #06080b; --bg-1: #0c1016; --bg-2: #131922; --bg-3: #1a222d;
+  --line: #243040; --line-soft: #18212c;
+  --txt: #e3e7ec; --dim: #879099; --faint: #5a636d;
+}
+html[data-bg="coal"] {
+  --bg-0: #0f0f0f; --bg-1: #161616; --bg-2: #1d1d1d; --bg-3: #252525;
+  --line: #313131; --line-soft: #242424;
+}
+html[data-bg="midnight"] {
+  --bg-0: #070a14; --bg-1: #0e1322; --bg-2: #151c30; --bg-3: #1d263f;
+  --line: #2a3553; --line-soft: #1d2640;
+  --txt: #e4e7f0; --dim: #8b92a8; --faint: #5d6477;
+}
+html[data-bg="wenge"] {
+  --bg-0: #100d0b; --bg-1: #181411; --bg-2: #211b17; --bg-3: #2b231d;
+  --line: #3a2f26; --line-soft: #282019;
+  --txt: #ece6dd; --dim: #9a8f82; --faint: #6b6258;
+}
+
+/* ---------------------------------------------------------------- accents */
+html[data-accent="gold"]      { --acc: #c9a227; --acc-soft: #a3821c; --acc-bright: #e2bd49; --acc-ink: #110e04; --acc-rgb: 201,162,39; }
+html[data-accent="antique"]   { --acc: #b08d57; --acc-soft: #8d7044; --acc-bright: #cba873; --acc-ink: #120e07; --acc-rgb: 176,141,87; }
+html[data-accent="bronze"]    { --acc: #a9742f; --acc-soft: #875b24; --acc-bright: #c68f45; --acc-ink: #120c04; --acc-rgb: 169,116,47; }
+html[data-accent="champagne"] { --acc: #d3c08b; --acc-soft: #ab9a6d; --acc-bright: #e8d7a6; --acc-ink: #14110a; --acc-rgb: 211,192,139; }
+html[data-accent="silver"]    { --acc: #a4acb8; --acc-soft: #828a96; --acc-bright: #c3cad4; --acc-ink: #0c0e11; --acc-rgb: 164,172,184; }
+html[data-accent="jade"]      { --acc: #5f9c7b; --acc-soft: #4a7c61; --acc-bright: #7cb897; --acc-ink: #06100b; --acc-rgb: 95,156,123; }
+html[data-accent="wine"]      { --acc: #9c4a52; --acc-soft: #7c3a41; --acc-bright: #bb646c; --acc-ink: #120508; --acc-rgb: 156,74,82; }
+html[data-accent="ice"]       { --acc: #6f94c0; --acc-soft: #57769a; --acc-bright: #8fb0d6; --acc-ink: #060b12; --acc-rgb: 111,148,192; }
+html[data-accent="violet"]    { --acc: #8a6fb5; --acc-soft: #6e5891; --acc-bright: #a78ccf; --acc-ink: #0a0612; --acc-rgb: 138,111,181; }
+html[data-accent="copper"]    { --acc: #b4674a; --acc-soft: #90513a; --acc-bright: #cd8268; --acc-ink: #130805; --acc-rgb: 180,103,74; }
+
+/* ------------------------------------------------------------- modifiers */
+html[data-density="compact"] { --gap: 8px;  --fs: 13px; --r-m: 8px;  --r-l: 12px; }
+html[data-density="cozy"]    { --gap: 12px; --fs: 14px; }
+html[data-density="roomy"]   { --gap: 18px; --fs: 15px; --r-m: 12px; --r-l: 20px; }
+
+html[data-corners="sharp"]  { --r-s: 0px; --r-m: 0px; --r-l: 0px; }
+html[data-corners="soft"]   { --r-s: 6px; --r-m: 10px; --r-l: 16px; }
+html[data-corners="round"]  { --r-s: 10px; --r-m: 16px; --r-l: 26px; }
+
+html[data-glow="off"] { --glow: none; }
+html[data-motion="off"] * { animation: none !important; transition: none !important; }
+
+/* background texture layers */
+#bgfx {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+html[data-texture="vignette"] #bgfx {
+  background: radial-gradient(ellipse at 50% 0%, rgba(var(--acc-rgb), 0.07), transparent 55%),
+              radial-gradient(ellipse at 50% 120%, rgba(0, 0, 0, 0.85), transparent 60%);
+}
+html[data-texture="grid"] #bgfx {
+  background-image: linear-gradient(rgba(var(--acc-rgb), 0.045) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(var(--acc-rgb), 0.045) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse at 50% 40%, #000 20%, transparent 78%);
+  -webkit-mask-image: radial-gradient(ellipse at 50% 40%, #000 20%, transparent 78%);
+}
+html[data-texture="rays"] #bgfx {
+  background: conic-gradient(from 210deg at 50% 10%,
+    transparent 0deg, rgba(var(--acc-rgb), 0.05) 18deg, transparent 36deg,
+    transparent 70deg, rgba(var(--acc-rgb), 0.04) 88deg, transparent 106deg,
+    transparent 150deg, rgba(var(--acc-rgb), 0.03) 168deg, transparent 186deg);
+}
+html[data-texture="noise"] #bgfx {
+  opacity: .5;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/><feColorMatrix type='saturate' values='0'/></filter><rect width='140' height='140' filter='url(%23n)' opacity='.22'/></svg>");
+}

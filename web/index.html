@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ru" data-bg="black" data-accent="gold" data-texture="vignette"
+      data-glow="on" data-corners="soft" data-density="cozy" data-motion="on">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="description" content="Sayumi — локальный рабочий интерфейс: чат, заметки, задачи и файлы.">
+<title>Sayumi</title>
+<link rel="icon" href="assets/sayumi-icon.png">
+<link rel="stylesheet" href="css/theme.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<div id="bgfx"></div>
+
+<header class="topbar">
+  <div class="brand">
+    <img src="assets/sayumi-icon.png" alt="">
+    <div>
+      <b id="brand-name">Sayumi</b><br>
+      <small>рабочее пространство</small>
+    </div>
+  </div>
+
+  <nav class="topnav">
+    <button class="btn ghost" id="nav-chat">
+      <svg viewBox="0 0 16 16"><path d="M2 3h12v8H6l-4 3z"/></svg><span>Чат</span>
+    </button>
+    <button class="btn ghost" id="nav-notes">
+      <svg viewBox="0 0 16 16"><path d="M4 2h8v12H4z"/><path d="M6 5h4M6 8h4M6 11h2"/></svg><span>Заметки</span>
+    </button>
+    <button class="btn ghost" id="nav-tasks">
+      <svg viewBox="0 0 16 16"><path d="M3 5l2 2 3-4"/><path d="M3 11l2 2 3-4"/><path d="M10 6h4M10 12h4"/></svg><span>Задачи</span>
+    </button>
+    <button class="btn ghost" id="nav-files">
+      <svg viewBox="0 0 16 16"><path d="M2 4h4l1.5 2H14v7H2z"/></svg><span>Файлы</span>
+    </button>
+  </nav>
+
+  <div class="brand" style="border:0;gap:7px;padding:0">
+    <span class="dot off" id="srv-dot"></span>
+    <small id="srv-text" class="tiny muted">...</small>
+  </div>
+
+  <button class="btn icon ghost" id="btn-persona" title="Настройки Sayumi">
+    <svg viewBox="0 0 16 16"><circle cx="8" cy="5.5" r="2.6"/><path d="M2.6 14c.6-3 2.8-4.5 5.4-4.5S12.8 11 13.4 14"/></svg>
+  </button>
+
+  <button class="btn icon" id="btn-settings" title="Настройки проекта">
+    <svg viewBox="0 0 16 16">
+      <circle cx="8" cy="8" r="2.4"/>
+      <path d="M8 1.6v1.8M8 12.6v1.8M1.6 8h1.8M12.6 8h1.8M3.5 3.5l1.3 1.3M11.2 11.2l1.3 1.3M12.5 3.5l-1.3 1.3M4.8 11.2l-1.3 1.3"/>
+    </svg>
+  </button>
+</header>
+
+<main id="stage">
+  <div class="welcome">
+    <h1>Sayumi</h1>
+    <p>Нажмите на неё — откроется чат. Правая кнопка — её настройки.</p>
+    <p>Её можно перетащить в любое место экрана.</p>
+    <p style="margin-top:14px"><kbd>Ctrl</kbd> + <kbd>/</kbd> чат &nbsp;·&nbsp;
+       <kbd>Ctrl</kbd> + <kbd>,</kbd> настройки проекта &nbsp;·&nbsp;
+       <kbd>Ctrl</kbd> + <kbd>.</kbd> настройки Sayumi</p>
+  </div>
+</main>
+
+<div id="windows"></div>
+
+<div class="avatar" id="avatar" title="Левая кнопка — чат, правая — настройки">
+  <div class="aura"></div>
+  <div class="bubble"></div>
+  <img src="assets/sayumi.png" alt="Sayumi">
+  <div class="tag">Sayumi</div>
+</div>
+
+<div id="toasts"></div>
+
+<script src="js/core.js"></script>
+<script src="js/theme.js"></script>
+<script src="js/menu.js"></script>
+<script src="js/markdown.js"></script>
+<script src="js/windows.js"></script>
+<script src="js/persona.js"></script>
+<script src="js/chat.js"></script>
+<script src="js/tools.js"></script>
+<script src="js/settings.js"></script>
+<script src="js/avatar.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

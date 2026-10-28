@@ -1,0 +1,12 @@
+# Keep the Windows launcher and its helpers byte-exact: CRLF, no BOM.
+*.bat text eol=crlf working-tree-encoding=UTF-8
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+*.py  text eol=lf
+*.js  text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.md  text eol=lf
+
+*.png binary

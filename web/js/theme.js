@@ -1,0 +1,120 @@
+/* ==========================================================================
+   Sayumi theme engine: backgrounds, accents, shape, motion, presets
+   ========================================================================== */
+(function (global) {
+  "use strict";
+
+  var BACKGROUNDS = [
+    { id: "black",    ru: "Чёрный",     en: "Black",    hex: "#000000" },
+    { id: "coal",     ru: "Уголь",      en: "Coal",     hex: "#0f0f0f" },
+    { id: "graphite", ru: "Графит",     en: "Graphite", hex: "#15171a" },
+    { id: "obsidian", ru: "Обсидиан",   en: "Obsidian", hex: "#06080b" },
+    { id: "midnight", ru: "Полночь",    en: "Midnight", hex: "#070a14" },
+    { id: "wenge",    ru: "Венге",      en: "Wenge",    hex: "#100d0b" }
+  ];
+
+  var ACCENTS = [
+    { id: "gold",      ru: "Золото",        en: "Gold",      hex: "#c9a227" },
+    { id: "antique",   ru: "Старое золото", en: "Antique",   hex: "#b08d57" },
+    { id: "champagne", ru: "Шампань",       en: "Champagne", hex: "#d3c08b" },
+    { id: "bronze",    ru: "Бронза",        en: "Bronze",    hex: "#a9742f" },
+    { id: "copper",    ru: "Медь",          en: "Copper",    hex: "#b4674a" },
+    { id: "silver",    ru: "Серебро",       en: "Silver",    hex: "#a4acb8" },
+    { id: "jade",      ru: "Нефрит",        en: "Jade",      hex: "#5f9c7b" },
+    { id: "wine",      ru: "Вино",          en: "Wine",      hex: "#9c4a52" },
+    { id: "ice",       ru: "Лёд",           en: "Ice",       hex: "#6f94c0" },
+    { id: "violet",    ru: "Аметист",       en: "Amethyst",  hex: "#8a6fb5" }
+  ];
+
+  /* curated combinations - these are the pairings that actually look right */
+  var PRESETS = [
+    { id: "kitsune",  ru: "Кицунэ",     en: "Kitsune",   bg: "black",    accent: "gold",      texture: "vignette", glow: "on" },
+    { id: "temple",   ru: "Храм",       en: "Temple",    bg: "obsidian", accent: "antique",   texture: "rays",     glow: "on" },
+    { id: "graphite", ru: "Графит",     en: "Graphite",  bg: "graphite", accent: "champagne", texture: "none",     glow: "off" },
+    { id: "forge",    ru: "Кузница",    en: "Forge",     bg: "coal",     accent: "bronze",    texture: "noise",    glow: "on" },
+    { id: "moon",     ru: "Луна",       en: "Moon",      bg: "midnight", accent: "ice",       texture: "grid",     glow: "on" },
+    { id: "bamboo",   ru: "Бамбук",     en: "Bamboo",    bg: "obsidian", accent: "jade",      texture: "vignette", glow: "on" },
+    { id: "sakura",   ru: "Сакура",     en: "Sakura",    bg: "wenge",    accent: "wine",      texture: "vignette", glow: "on" },
+    { id: "steel",    ru: "Сталь",      en: "Steel",     bg: "graphite", accent: "silver",    texture: "none",     glow: "off" },
+    { id: "ember",    ru: "Уголёк",     en: "Ember",     bg: "black",    accent: "copper",    texture: "rays",     glow: "on" },
+    { id: "night",    ru: "Ночной сад", en: "Night",     bg: "midnight", accent: "violet",    texture: "noise",    glow: "on" }
+  ];
+
+  var DEFAULTS = {
+    bg: "black",
+    accent: "gold",
+    texture: "vignette",
+    glow: "on",
+    corners: "soft",
+    density: "cozy",
+    motion: "on",
+    fontScale: 100,
+    preset: "kitsune"
+  };
+
+  var state = Object.assign({}, DEFAULTS, S.load("theme", {}));
+
+  function apply() {
+    var root = document.documentElement;
+    root.setAttribute("data-bg", state.bg);
+    root.setAttribute("data-accent", state.accent);
+    root.setAttribute("data-texture", state.texture);
+    root.setAttribute("data-glow", state.glow);
+    root.setAttribute("data-corners", state.corners);
+    root.setAttribute("data-density", state.density);
+    root.setAttribute("data-motion", state.motion);
+    root.style.setProperty("--fs", (14 * (state.fontScale / 100)).toFixed(1) + "px");
+    var meta = S.qs('meta[name="theme-color"]');
+    if (meta) {
+      var bg = BACKGROUNDS.filter(function (b) { return b.id === state.bg; })[0];
+      meta.setAttribute("content", bg ? bg.hex : "#000000");
+    }
+    S.emit("theme", state);
+  }
+
+  function set(patch, silent) {
+    Object.assign(state, patch || {});
+    /* any manual tweak detaches the named preset unless it matches again */
+    var match = PRESETS.filter(function (p) {
+      return p.bg === state.bg && p.accent === state.accent;
+    })[0];
+    state.preset = match ? match.id : "";
+    S.save("theme", state);
+    apply();
+    if (!silent) S.emit("theme:changed", state);
+  }
+
+  function usePreset(id) {
+    var p = PRESETS.filter(function (x) { return x.id === id; })[0];
+    if (!p) return;
+    set({ bg: p.bg, accent: p.accent, texture: p.texture, glow: p.glow });
+    state.preset = p.id;
+    S.save("theme", state);
+  }
+
+  function reset() {
+    state = Object.assign({}, DEFAULTS);
+    S.save("theme", state);
+    apply();
+    S.emit("theme:changed", state);
+  }
+
+  function label(entry) {
+    return S.getLang() === "en" ? entry.en : entry.ru;
+  }
+
+  global.Theme = {
+    BACKGROUNDS: BACKGROUNDS,
+    ACCENTS: ACCENTS,
+    PRESETS: PRESETS,
+    DEFAULTS: DEFAULTS,
+    get state() { return state; },
+    apply: apply,
+    set: set,
+    usePreset: usePreset,
+    reset: reset,
+    label: label
+  };
+
+  apply();
+})(window);
