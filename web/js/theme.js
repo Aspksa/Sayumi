@@ -5,12 +5,12 @@
   "use strict";
 
   var BACKGROUNDS = [
-    { id: "black",    ru: "Чёрный",     en: "Black",    hex: "#000000" },
-    { id: "coal",     ru: "Уголь",      en: "Coal",     hex: "#0f0f0f" },
-    { id: "graphite", ru: "Графит",     en: "Graphite", hex: "#15171a" },
-    { id: "obsidian", ru: "Обсидиан",   en: "Obsidian", hex: "#06080b" },
-    { id: "midnight", ru: "Полночь",    en: "Midnight", hex: "#070a14" },
-    { id: "wenge",    ru: "Венге",      en: "Wenge",    hex: "#100d0b" }
+    { id: "black",    ru: "Чёрный",     en: "Black",    hex: "#000000", panel: "#0a0a0c", card: "#111115", line: "#26262f", txt: "#e8e6e1", dim: "#8e8b85" },
+    { id: "coal",     ru: "Уголь",      en: "Coal",     hex: "#0f0f0f", panel: "#161616", card: "#1d1d1d", line: "#313131", txt: "#e8e6e1", dim: "#8e8b85" },
+    { id: "graphite", ru: "Графит",     en: "Graphite", hex: "#15171a", panel: "#1b1e22", card: "#22262c", line: "#343a43", txt: "#e6e8ea", dim: "#949aa3" },
+    { id: "obsidian", ru: "Обсидиан",   en: "Obsidian", hex: "#06080b", panel: "#0c1016", card: "#131922", line: "#243040", txt: "#e3e7ec", dim: "#879099" },
+    { id: "midnight", ru: "Полночь",    en: "Midnight", hex: "#070a14", panel: "#0e1322", card: "#151c30", line: "#2a3553", txt: "#e4e7f0", dim: "#8b92a8" },
+    { id: "wenge",    ru: "Венге",      en: "Wenge",    hex: "#100d0b", panel: "#181411", card: "#211b17", line: "#3a2f26", txt: "#ece6dd", dim: "#9a8f82" }
   ];
 
   var ACCENTS = [
@@ -71,6 +71,20 @@
     { id: "Courier New", ru: "Courier New", en: "Courier New" }
   ];
 
+  var FONTS_DISPLAY = [
+    { id: "", ru: "Декоративный", en: "Decorative", stack: '"Constantia", "Palatino Linotype", "Book Antiqua", Georgia, serif' },
+    { id: "ui", ru: "Как интерфейс", en: "Same as interface" },
+    { id: "Georgia", ru: "Georgia", en: "Georgia" },
+    { id: "Constantia", ru: "Constantia", en: "Constantia" },
+    { id: "Palatino Linotype", ru: "Palatino Linotype", en: "Palatino Linotype" },
+    { id: "Book Antiqua", ru: "Book Antiqua", en: "Book Antiqua" },
+    { id: "Cambria", ru: "Cambria", en: "Cambria" },
+    { id: "Garamond", ru: "Garamond", en: "Garamond" },
+    { id: "Times New Roman", ru: "Times New Roman", en: "Times New Roman" },
+    { id: "Candara", ru: "Candara", en: "Candara" },
+    { id: "Trebuchet MS", ru: "Trebuchet MS", en: "Trebuchet MS" }
+  ];
+
   /* a font counts as present when it renders differently from a known fallback */
   var fontCache = {};
   function hasFont(name) {
@@ -113,6 +127,7 @@
     fontScale: 100,
     fontUI: "",
     fontMono: "",
+    fontDisplay: "",
     radius: 10,
     borderW: 1,
     shadow: 70,
@@ -138,6 +153,13 @@
       state.fontUI ? '"' + state.fontUI + '", ' + uiFallback : uiFallback);
     root.style.setProperty("--font-mono",
       state.fontMono ? '"' + state.fontMono + '", ' + monoFallback : monoFallback);
+
+    var uiValue = state.fontUI ? '"' + state.fontUI + '", ' + uiFallback : uiFallback;
+    var displayFallback = FONTS_DISPLAY[0].stack;
+    var displayValue = displayFallback;
+    if (state.fontDisplay === "ui") displayValue = uiValue;
+    else if (state.fontDisplay) displayValue = '"' + state.fontDisplay + '", ' + displayFallback;
+    root.style.setProperty("--font-display", displayValue);
 
     var r = Number(state.radius);
     root.style.setProperty("--r-s", Math.round(r * 0.6) + "px");
@@ -189,6 +211,7 @@
     BACKGROUNDS: BACKGROUNDS,
     FONTS_UI: FONTS_UI,
     FONTS_MONO: FONTS_MONO,
+    FONTS_DISPLAY: FONTS_DISPLAY,
     hasFont: hasFont,
     fontStack: fontStack,
     ACCENTS: ACCENTS,

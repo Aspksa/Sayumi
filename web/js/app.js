@@ -75,6 +75,85 @@
     });
   }
 
+  /* ------------------------------------------------------- status bar --- */
+  var clockTimer = null;
+
+  function statusBar() {
+    var dot = S.qs("#st-dot");
+    var srv = S.qs("#st-server-text");
+    var model = S.qs("#st-model");
+    var ctxSeg = S.qs("#st-ctx");
+    var work = S.qs("#st-work");
+    var theme = S.qs("#st-theme");
+    if (!srv) return;
+
+    dot.className = "dot " + (S.server.up ? "live" : "off");
+    srv.textContent = S.server.up
+      ? "127.0.0.1:" + (S.server.info ? S.server.info.port : "?")
+      : "офлайн";
+
+    var cfg = Chat.config;
+    var names = { local: "без модели", openai: "openai", anthropic: "claude", ollama: "ollama" };
+    model.innerHTML = I.svg("cpu") + "<b>" +
+      S.esc(names[cfg.provider] || cfg.provider) +
+      (cfg.provider === "local" ? "" : " " + S.esc(cfg.model)) + "</b>";
+
+    var sessions = Chat.exportAll();
+    var open = sessions.filter(function (x) { return x.id === S.load("chat.current", ""); })[0] || sessions[0];
+    var msgs = open ? open.messages.length : 0;
+    var tok = open ? open.messages.reduce(function (sum, m) { return sum + S.tokens(m.text); }, 0) : 0;
+    ctxSeg.innerHTML = I.svg("chat") + "<b>" + msgs + "</b> сообщ · <b>~" + tok + "</b> tok";
+
+    var openTasks = Tools.tasks.filter(function (t) { return !t.done; }).length;
+    work.innerHTML = I.svg("note") + "<b>" + Tools.notes.length + "</b> зам · " +
+      I.svg("task") + "<b>" + openTasks + "</b> задач";
+
+    var st = Theme.state;
+    var bg = Theme.BACKGROUNDS.filter(function (b) { return b.id === st.bg; })[0];
+    var ac = Theme.ACCENTS.filter(function (a) { return a.id === st.accent; })[0];
+    theme.innerHTML = I.svg("palette") + "<b>" + S.esc(Theme.label(bg)) + " · " +
+      S.esc(Theme.label(ac)) + "</b>";
+  }
+
+  function tickClock() {
+    var node = S.qs("#st-clock");
+    if (!node) return;
+    var d = new Date();
+    function pad(n) { return n < 10 ? "0" + n : "" + n; }
+    node.textContent = pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
+  }
+
+  function bindStatusBar() {
+    S.qs("#st-server").addEventListener("click", function () {
+      S.probeServer().then(function () {
+        statusBar();
+        S.toast(S.server.up ? S.t("online") : S.t("offline"), S.server.up ? "ok" : "bad");
+      });
+    });
+    S.qs("#st-model").addEventListener("click", function () { Settings.openWindow(); });
+    S.qs("#st-work").addEventListener("click", function () { Tools.openTasks(); });
+
+    ["server", "theme", "persona", "lang"].forEach(function (name) {
+      S.on(name, statusBar);
+    });
+    S.on("win:close", statusBar);
+    S.on("win:open", statusBar);
+    document.addEventListener("click", function (e) {
+      if (e.target.closest(".composer")) setTimeout(statusBar, 120);
+    }, true);
+    S.qs("#st-ctx").classList.add("act");
+    S.qs("#st-ctx").addEventListener("click", function () { Chat.openWindow(); });
+
+    /* the clock ticks every second, the rest only needs a lazy refresh */
+    clearInterval(clockTimer);
+    tickClock();
+    var ticks = 0;
+    clockTimer = setInterval(function () {
+      tickClock();
+      if (++ticks % 5 === 0) statusBar();
+    }, 1000);
+  }
+
   function paintStatus() {
     var dot = S.qs("#srv-dot");
     var text = S.qs("#srv-text");
@@ -92,6 +171,7 @@
     S.qs("#btn-persona").title = S.t("persona");
     S.qs("#btn-settings").title = S.t("settings");
     paintStatus();
+    statusBar();
   }
 
   function start() {
@@ -100,6 +180,7 @@
     bindHotkeys();
     bindStage();
     Avatar.init();
+    bindStatusBar();
     applyLangLabels();
 
     S.on("server", paintStatus);

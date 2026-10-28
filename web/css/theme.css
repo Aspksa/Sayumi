@@ -38,6 +38,13 @@
   --accent-alpha: 1;
   --bw: 1px;
   --sh: 0.7;
+  /* shadows are tinted with the accent instead of being flat black */
+  --shadow-win: 0 28px 64px -18px rgba(var(--acc-rgb), calc(var(--sh) * .26)),
+                0 20px 48px rgba(0, 0, 0, var(--sh));
+  --shadow-pop: 0 16px 40px -10px rgba(var(--acc-rgb), calc(var(--sh) * .24)),
+                0 10px 28px rgba(0, 0, 0, var(--sh));
+  --shadow-soft: 0 8px 20px -6px rgba(var(--acc-rgb), calc(var(--sh) * .2)),
+                 0 4px 14px rgba(0, 0, 0, calc(var(--sh) * .7));
   --swayY: 3px;
   --swayR: 0.4deg;
   --glow: 0 0 22px rgba(var(--acc-rgb), 0.18);
@@ -45,6 +52,7 @@
 
   --font-ui: "Segoe UI", "Inter", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Mono", "Consolas", "SFMono-Regular", monospace;
+  --font-display: "Constantia", "Palatino Linotype", "Book Antiqua", Georgia, serif;
 }
 
 /* ------------------------------------------------------------ backgrounds */

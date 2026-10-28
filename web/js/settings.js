@@ -5,11 +5,16 @@
   "use strict";
 
   var PAGES = {
-    look:  { ru: "Оформление", en: "Appearance" },
-    ui:    { ru: "Интерфейс",  en: "Interface" },
-    model: { ru: "Модель",     en: "Model" },
-    data:  { ru: "Данные",     en: "Data" },
-    about: { ru: "О проекте",  en: "About" }
+    look:  { ru: "Оформление", en: "Appearance", icon: "palette",
+             ruNote: "цвета, шрифты, форма", enNote: "colours, fonts, shape" },
+    ui:    { ru: "Интерфейс",  en: "Interface",  icon: "sliders",
+             ruNote: "язык, окна, клавиши",  enNote: "language, windows, keys" },
+    model: { ru: "Модель",     en: "Model",      icon: "cpu",
+             ruNote: "подключение и ответы",  enNote: "connection and replies" },
+    data:  { ru: "Данные",     en: "Data",       icon: "database",
+             ruNote: "сервер и копии",        enNote: "server and backups" },
+    about: { ru: "О проекте",  en: "About",      icon: "info",
+             ruNote: "версия и команды",      enNote: "version and commands" }
   };
 
   var active = "look";
@@ -17,28 +22,34 @@
   function openWindow() {
     if (Win.get("settings")) { Win.get("settings").focus(); return; }
 
-    var pane = S.el("div", { class: "pane" });
-    var tabs = S.el("div", { class: "tabs" });
+    var shell = S.el("div", { class: "shell" });
+    var rail = S.el("div", { class: "rail" });
     var body = S.el("div", { class: "pane-body" });
-    pane.appendChild(tabs);
-    pane.appendChild(body);
+    shell.appendChild(rail);
+    shell.appendChild(body);
 
+    rail.appendChild(S.el("div", { class: "rail-head", text: "Разделы" }));
+
+    var buttons = {};
     Object.keys(PAGES).forEach(function (key) {
-      var b = S.el("button", {
-        class: "tab" + (key === active ? " on" : ""),
-        text: S.getLang() === "en" ? PAGES[key].en : PAGES[key].ru
-      });
-      b.addEventListener("click", function () {
+      var page = PAGES[key];
+      var en = S.getLang() === "en";
+      var item = S.el("button", { class: "rail-item" + (key === active ? " on" : "") });
+      item.innerHTML = I.svg(page.icon) +
+        '<span class="nm">' + S.esc(en ? page.en : page.ru) +
+        "<small>" + S.esc(en ? page.enNote : page.ruNote) + "</small></span>";
+      item.addEventListener("click", function () {
         active = key;
-        S.qsa(".tab", tabs).forEach(function (t) { t.classList.remove("on"); });
-        b.classList.add("on");
+        Object.keys(buttons).forEach(function (k) { buttons[k].classList.toggle("on", k === key); });
         render();
       });
-      tabs.appendChild(b);
+      buttons[key] = item;
+      rail.appendChild(item);
     });
 
     function render() {
       body.innerHTML = "";
+      body.scrollTop = 0;
       ({ look: drawLook, ui: drawUI, model: drawModel, data: drawData, about: drawAbout })[active](body, render);
     }
     render();
@@ -46,19 +57,24 @@
     Win.create({
       id: "settings",
       title: S.t("settings"),
-      width: 680,
-      height: 600,
-      content: pane
+      width: 820,
+      height: 620,
+      content: shell
     });
   }
 
   /* ------------------------------------------------------------ helpers */
-  function section(parent, title, note) {
-    var sec = S.el("div", { class: "sec" });
-    sec.appendChild(S.el("h3", { text: title }));
-    if (note) sec.appendChild(S.el("div", { class: "note", text: note }));
-    parent.appendChild(sec);
-    return sec;
+  /* every group of settings is its own card with an icon and a heading */
+  function section(parent, title, note, icon) {
+    var card = S.el("div", { class: "card" });
+    var head = S.el("header");
+    head.innerHTML = I.svg(icon || "sliders") +
+      "<h3>" + S.esc(title) + (note ? "<small>" + S.esc(note) + "</small>" : "") + "</h3>";
+    var inner = S.el("div", { class: "inner" });
+    card.appendChild(head);
+    card.appendChild(inner);
+    parent.appendChild(card);
+    return inner;
   }
 
   function rowSelect(parent, label, options, value, onChange, note) {
@@ -124,7 +140,87 @@
     return input;
   }
 
-  function fontRow(parent, label, list, value, onChange, mono) {
+  /* a miniature of the real interface; it uses the same tokens, so it
+     restyles itself the moment a colour or a slider changes */
+  function liveMock() {
+    var mock = S.el("div", { class: "mock" });
+    mock.innerHTML =
+      '<div class="m-bar"><span class="m-dot"></span><span class="m-title">Sayumi</span></div>' +
+      '<div class="m-body">' +
+        '<div class="m-side">' +
+          '<span class="m-pill on"></span><span class="m-pill"></span><span class="m-pill"></span>' +
+        "</div>" +
+        '<div class="m-main">' +
+          '<span class="m-line w70"></span><span class="m-line"></span><span class="m-line w45"></span>' +
+          '<div class="m-quote">так выглядит цитата</div>' +
+          '<div class="m-btn">Кнопка</div>' +
+        "</div>" +
+      "</div>";
+    return mock;
+  }
+
+  /* a preset tile paints a tiny window in that preset's own colours */
+  function presetTile(preset, isOn, onPick) {
+    var bg = Theme.BACKGROUNDS.filter(function (b) { return b.id === preset.bg; })[0];
+    var ac = Theme.ACCENTS.filter(function (a) { return a.id === preset.accent; })[0];
+
+    var tile = S.el("div", { class: "tile" + (isOn ? " on" : ""), title: Theme.label(preset) });
+    var art = S.el("div", { class: "t-art" });
+    art.style.background = bg.hex;
+
+    var bar = S.el("div", { class: "t-bar" });
+    bar.style.background = bg.panel;
+    var dot = S.el("span", { class: "t-dot" });
+    dot.style.background = ac.hex;
+    dot.style.boxShadow = "0 0 6px " + ac.hex;
+    bar.appendChild(dot);
+    var cap = S.el("span", { class: "t-chip" });
+    cap.style.cssText = "width:28px;height:4px;border-radius:99px;background:" + ac.hex + "aa";
+    bar.appendChild(cap);
+    art.appendChild(bar);
+
+    var rule = S.el("div", { class: "t-rule" });
+    rule.style.background = "linear-gradient(90deg, transparent, " + ac.hex + "99, transparent)";
+    art.appendChild(rule);
+
+    var rows = S.el("div", { class: "t-rows" });
+    var side = S.el("div", { class: "t-col", style: "flex:0 0 26px" });
+    [0, 1, 2].forEach(function (i) {
+      var p = S.el("span", { class: "t-l", style: "height:6px" });
+      p.style.background = i === 0 ? ac.hex + "66" : bg.card;
+      side.appendChild(p);
+    });
+    var main = S.el("div", { class: "t-col" });
+    [["80%", bg.line], ["62%", bg.line], ["45%", bg.line]].forEach(function (pair) {
+      var line = S.el("span", { class: "t-l" });
+      line.style.width = pair[0];
+      line.style.background = pair[1];
+      main.appendChild(line);
+    });
+    var chip = S.el("span", { class: "t-chip" });
+    chip.style.background = "linear-gradient(180deg," + ac.hex + "," + ac.hex + "bb)";
+    main.appendChild(chip);
+    rows.appendChild(side);
+    rows.appendChild(main);
+    art.appendChild(rows);
+    tile.appendChild(art);
+
+    var foot = S.el("div", { class: "t-foot" });
+    foot.appendChild(S.el("span", { text: Theme.label(preset), style: "color:" + ac.hex }));
+    var sw = S.el("span", { class: "sw-mini" });
+    [bg.hex, bg.card, ac.hex].forEach(function (c) {
+      var i = S.el("i");
+      i.style.background = c;
+      sw.appendChild(i);
+    });
+    foot.appendChild(sw);
+    tile.appendChild(foot);
+
+    tile.addEventListener("click", onPick);
+    return tile;
+  }
+
+  function fontRow(parent, label, list, value, onChange, kind) {
     var row = S.el("div", { class: "row" });
     row.appendChild(S.el("div", { class: "lab", text: label }));
     var ctl = S.el("div", { class: "ctl" });
@@ -149,8 +245,11 @@
       class: "note tiny",
       style: "margin:-4px 0 10px;padding:7px 10px;border:var(--bw) solid var(--line-soft);" +
              "border-radius:var(--r-s);background:var(--bg-0);" +
-             (mono ? "font-family:var(--font-mono)" : "font-family:var(--font-ui)"),
-      text: mono ? "const sayumi = 1234567890;  Il1 O0" : "Съешь ещё этих мягких булок 0123"
+             "font-family:var(--font-" + (kind || "ui") + ")" +
+      (kind === "display" ? ";font-size:15px;letter-spacing:.04em" : ""),
+      text: kind === "mono" ? "const sayumi = 1234567890;  Il1 O0"
+          : kind === "display" ? "Sayumi · Заголовок раздела"
+          : "Съешь ещё этих мягких булок 0123"
     });
     parent.appendChild(sample);
     if (missing) {
@@ -174,37 +273,32 @@
   function drawLook(root, redraw) {
     var st = Theme.state;
 
-    var sec0 = section(root, "Готовые сочетания",
-      "Подобранные пары фона и акцента — нажмите, чтобы применить целиком.");
-    var grid = S.el("div", { class: "presets" });
-    Theme.PRESETS.forEach(function (p) {
-      var bgHex = Theme.BACKGROUNDS.filter(function (b) { return b.id === p.bg; })[0].hex;
-      var acHex = Theme.ACCENTS.filter(function (a) { return a.id === p.accent; })[0].hex;
-      var card = S.el("div", { class: "preset" + (st.preset === p.id ? " on" : "") });
-      card.style.background = bgHex;
-      card.appendChild(S.el("div", { class: "nm", text: Theme.label(p), style: "color:" + acHex }));
-      var strip = S.el("div", { class: "strip" });
-      strip.appendChild(S.el("i", { style: "background:" + bgHex }));
-      strip.appendChild(S.el("i", { style: "background:" + acHex }));
-      strip.appendChild(S.el("i", { style: "background:" + acHex + "55" }));
-      strip.appendChild(S.el("i", { style: "background:#ffffff14" }));
-      card.appendChild(strip);
-      card.addEventListener("click", function () { Theme.usePreset(p.id); redraw(); });
-      grid.appendChild(card);
-    });
-    sec0.appendChild(grid);
+    var secPreview = section(root, "Предпросмотр",
+      "Макет меняется вместе с настройками ниже", "sparkle");
+    secPreview.appendChild(liveMock());
 
-    var sec1 = section(root, "Фон", "Основной цвет всего интерфейса.");
-    var bgRow = S.el("div", { class: "swatches" });
-    Theme.BACKGROUNDS.forEach(function (b) {
-      bgRow.appendChild(swatchCard(b, st.bg === b.id, b.hex, function () {
-        Theme.set({ bg: b.id });
+    var sec0 = section(root, "Готовые сочетания",
+      "Подобранные пары фона и акцента", "star");
+    var grid = S.el("div", { class: "tiles" });
+    Theme.PRESETS.forEach(function (p) {
+      grid.appendChild(presetTile(p, st.preset === p.id, function () {
+        Theme.usePreset(p.id);
         redraw();
       }));
     });
+    sec0.appendChild(grid);
+
+    var sec1 = section(root, "Фон", "Основной цвет всего интерфейса", "palette");
+    var bgRow = S.el("div", { class: "swatches" });
+    Theme.BACKGROUNDS.forEach(function (b) {
+      bgRow.appendChild(swatchCard(b, st.bg === b.id,
+        "linear-gradient(135deg," + b.hex + " 0%," + b.hex + " 48%," + b.card + " 52%," + b.card + " 100%)",
+        function () { Theme.set({ bg: b.id }); redraw(); }));
+    });
     sec1.appendChild(bgRow);
 
-    var sec2 = section(root, "Цвет кнопок и меню", "Акцент применяется к кнопкам, рамкам и подсветке.");
+    var sec2 = section(root, "Цвет кнопок и меню",
+      "Акцент для кнопок, рамок и подсветки", "palette");
     var acRow = S.el("div", { class: "swatches" });
     Theme.ACCENTS.forEach(function (a) {
       var fill = "linear-gradient(135deg," + a.hex + " 0%," + a.hex + "aa 70%," + a.hex + "55 100%)";
@@ -215,7 +309,27 @@
     });
     sec2.appendChild(acRow);
 
-    var sec3 = section(root, "Детали оформления");
+    var secF = section(root, "Шрифты",
+      "Показаны только установленные в системе", "type");
+    fontRow(secF, "Заголовки", Theme.FONTS_DISPLAY, st.fontDisplay, function (v) {
+      Theme.set({ fontDisplay: v });
+    }, "display");
+    fontRow(secF, "Интерфейс", Theme.FONTS_UI, st.fontUI, function (v) {
+      Theme.set({ fontUI: v });
+    });
+    fontRow(secF, "Моноширинный", Theme.FONTS_MONO, st.fontMono, function (v) {
+      Theme.set({ fontMono: v });
+    }, "mono");
+
+    var secB = section(root, "Рамки и тени", "Тонкая подстройка формы", "frame");
+    rowRange(secB, "Скругление углов", st.radius, 0, 26, 1,
+      function (v) { Theme.set({ radius: v }); }, " px");
+    rowRange(secB, "Толщина рамок", st.borderW, 0, 3, 1,
+      function (v) { Theme.set({ borderW: v }); }, " px");
+    rowRange(secB, "Глубина тени", st.shadow, 0, 100, 1,
+      function (v) { Theme.set({ shadow: v }); }, " %");
+
+    var sec3 = section(root, "Детали оформления", null, "sliders");
     rowSelect(sec3, "Текстура фона", [
       ["none", "Нет"], ["vignette", "Виньетка"], ["grid", "Сетка"],
       ["rays", "Лучи"], ["noise", "Зерно"]
@@ -234,23 +348,6 @@
     rowSwitch(sec3, "Анимации", st.motion === "on",
       function (v) { Theme.set({ motion: v ? "on" : "off" }); }, "Выключите, если интерфейс подтормаживает");
 
-
-    var secF = section(root, "Шрифты", "Показаны только те, что установлены в системе.");
-    fontRow(secF, "Интерфейс", Theme.FONTS_UI, st.fontUI, function (v) {
-      Theme.set({ fontUI: v });
-    });
-    fontRow(secF, "Моноширинный", Theme.FONTS_MONO, st.fontMono, function (v) {
-      Theme.set({ fontMono: v });
-    }, true);
-
-    var secB = section(root, "Рамки и тени", "Тонкая подстройка формы интерфейса.");
-    rowRange(secB, "Скругление углов", st.radius, 0, 26, 1,
-      function (v) { Theme.set({ radius: v }); }, " px");
-    rowRange(secB, "Толщина рамок", st.borderW, 0, 3, 1,
-      function (v) { Theme.set({ borderW: v }); }, " px");
-    rowRange(secB, "Глубина тени", st.shadow, 0, 100, 1,
-      function (v) { Theme.set({ shadow: v }); }, " %");
-
     var acts = S.el("div", { class: "inline" });
     var bReset = S.el("button", { class: "btn danger", text: "Сбросить оформление" });
     bReset.addEventListener("click", function () { Theme.reset(); redraw(); });
@@ -262,7 +359,7 @@
   function drawUI(root, redraw) {
     var cfg = Chat.config;
 
-    var sec = section(root, "Общее");
+    var sec = section(root, "Общее", "Язык и поведение ввода", "sliders");
     rowSelect(sec, "Язык интерфейса", [["ru", "Русский"], ["en", "English"]],
       S.getLang(), function (v) { S.setLang(v); redraw(); });
 
@@ -273,7 +370,7 @@
     rowSwitch(sec, "Показывать время сообщений", cfg.showTimestamps,
       function (v) { Chat.setConfig({ showTimestamps: v }); });
 
-    var sec2 = section(root, "Аватар");
+    var sec2 = section(root, "Аватар", "Видимость и положение", "user");
     var p = Persona.get();
     rowSwitch(sec2, "Показывать аватар", !p.hidden, function (v) {
       Persona.set({ hidden: !v });
@@ -289,7 +386,7 @@
     acts2.appendChild(bPos);
     sec2.appendChild(acts2);
 
-    var sec3 = section(root, "Окна");
+    var sec3 = section(root, "Окна", "Положение и размеры панелей", "frame");
     var acts3 = S.el("div", { class: "inline" });
     var bWins = S.el("button", { class: "btn", text: "Сбросить положение окон" });
     bWins.addEventListener("click", function () {
@@ -306,7 +403,7 @@
     acts3.appendChild(bClose);
     sec3.appendChild(acts3);
 
-    var sec4 = section(root, "Горячие клавиши");
+    var sec4 = section(root, "Горячие клавиши", null, "cpu");
     var keys = [
       ["Ctrl + /", "открыть или закрыть чат"],
       ["Ctrl + ,", "настройки проекта"],
@@ -330,7 +427,7 @@
     var cfg = Chat.config;
 
     var sec = section(root, "Подключение модели",
-      "Без модели Sayumi работает автономно: заметки, задачи, файлы и инструменты остаются доступны.");
+      "Без модели остаются заметки, задачи, файлы и инструменты", "cpu");
 
     rowSelect(sec, "Провайдер", [
       ["local", "Автономно, без модели"],
@@ -357,7 +454,7 @@
       }
     }
 
-    var sec2 = section(root, "Параметры генерации");
+    var sec2 = section(root, "Параметры генерации", "Как именно она отвечает", "sliders");
     rowRange(sec2, "Температура", cfg.temperature, 0, 2, 0.05,
       function (v) { Chat.setConfig({ temperature: v }); });
     rowRange(sec2, "Максимум токенов", cfg.maxTokens, 256, 8192, 64,
@@ -369,7 +466,7 @@
     rowSwitch(sec2, "Озвучивать ответы", cfg.tts,
       function (v) { Chat.setConfig({ tts: v }); });
 
-    var sec3 = section(root, "Проверка");
+    var sec3 = section(root, "Проверка", "Пробный запрос к провайдеру", "check");
     var out = S.el("div", { class: "note tiny muted", text: "" });
     var bTest = S.el("button", { class: "btn primary", text: "Проверить соединение" });
     bTest.addEventListener("click", function () {
@@ -399,7 +496,7 @@
 
   /* --------------------------------------------------------------- data */
   function drawData(root, redraw) {
-    var sec = section(root, "Локальный сервер");
+    var sec = section(root, "Локальный сервер", "Файлы, сохранение на диск и обход CORS", "database");
     var status = S.el("div", { class: "item" });
     status.appendChild(S.el("span", { class: "dot " + (S.server.up ? "live" : "off") }));
     status.appendChild(S.el("span", { class: "grow", text: S.server.up ? S.t("online") : S.t("offline") }));
@@ -425,7 +522,7 @@
     sec.appendChild(S.el("div", { class: "inline" })).appendChild(bRetry);
 
     var sec2 = section(root, "Резервная копия",
-      "Один файл со всеми чатами, заметками, задачами и настройками.");
+      "Один файл со всеми чатами, заметками и настройками", "download");
     var acts = S.el("div", { class: "inline" });
 
     var bOut = S.el("button", { class: "btn primary", text: "Выгрузить всё" });
@@ -459,7 +556,7 @@
     acts.appendChild(bIn);
     sec2.appendChild(acts);
 
-    var sec3 = section(root, "Хранилище");
+    var sec3 = section(root, "Хранилище", "Сколько занято и что можно очистить", "database");
     var used = 0;
     S.allKeys().forEach(function (k) {
       try { used += (localStorage.getItem(S.NS + k) || "").length; } catch (e) {}
@@ -490,7 +587,7 @@
 
   /* -------------------------------------------------------------- about */
   function drawAbout(root) {
-    var sec = section(root, "Sayumi");
+    var sec = section(root, "Sayumi", "Версия и режим запуска", "info");
     sec.appendChild(S.el("div", { class: "note" },
       "Локальный рабочий интерфейс: чат, заметки, задачи и файлы в одном окне. " +
       "Всё хранится на вашем компьютере, ничего не уходит наружу без вашего ключа."));
@@ -511,12 +608,12 @@
     });
     sec.appendChild(list);
 
-    var sec2 = section(root, "Как запускать");
+    var sec2 = section(root, "Как запускать", null, "cpu");
     sec2.appendChild(S.el("div", { class: "note" },
       "Sayumi.bat в корне проекта: меню с выбором диска и папки данных, работа с флешки, " +
       "поиск Python и его установка, если он не найден."));
 
-    var sec3 = section(root, "Команды чата");
+    var sec3 = section(root, "Команды чата", null, "chat");
     var box = S.el("div", { class: "body", style: "background:var(--bg-2);padding:12px;border-radius:var(--r-m)" });
     box.innerHTML = MD.render(Chat.helpText());
     sec3.appendChild(box);
