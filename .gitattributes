@@ -1,5 +1,5 @@
 # Keep the Windows launcher and its helpers byte-exact: CRLF, no BOM.
-*.bat text eol=crlf working-tree-encoding=UTF-8
+*.bat text eol=crlf
 *.cmd text eol=crlf
 *.ps1 text eol=crlf
 
