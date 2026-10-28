@@ -575,6 +575,110 @@ async function waitFor(url, tries = 40) {
       await page.waitForTimeout(300);
     });
 
+    /* ------------------------------------------------------------- links */
+    describe("связи между окнами");
+    await it("сообщение чата становится задачей со связью", async () => {
+      await page.evaluate(() => {
+        Object.keys(Win.open).forEach((k) => Win.open[k].close());
+        localStorage.setItem("sayumi.tools.tasks", "[]");
+        localStorage.setItem("sayumi.links", "{}");
+        localStorage.setItem("sayumi.chat.sessions", JSON.stringify([{
+          id: "L1", title: "рабочий", pinned: false, created: Date.now(), updated: Date.now(),
+          messages: [{ id: "m1", role: "assistant", text: "Надо вынести стеммер в отдельный модуль", ts: Date.now() }]
+        }]));
+        localStorage.setItem("sayumi.chat.current", JSON.stringify("L1"));
+      });
+      await page.reload({ waitUntil: "networkidle" });
+      await page.waitForTimeout(800);
+      await page.evaluate(() => Chat.openWindow());
+      await page.waitForTimeout(400);
+
+      await page.locator('[data-win="chat"] .msg [data-act="send"]').first().click();
+      await page.waitForTimeout(300);
+      await page.locator("#ctx button", { hasText: "Сделать задачей" }).click();
+      await page.waitForTimeout(500);
+
+      const made = await page.evaluate(() => ({
+        tasks: Tools.tasks.map((t) => t.text),
+        links: Links.of({ t: "chat", id: "L1" })
+      }));
+      ok(made.tasks.some((t) => t.includes("стеммер")), "задача должна появиться: " + made.tasks);
+      ok(made.links.some((r) => r.t === "task"), "связь чат → задача должна записаться");
+    });
+
+    await it("связь видна обеими сторонами и ведёт назад", async () => {
+      const back = await page.evaluate(() => {
+        const task = Tools.tasks[0];
+        return Links.of({ t: "task", id: task.id }).map((r) => r.t);
+      });
+      ok(back.indexOf("chat") >= 0, "задача должна знать про чат, получено " + back);
+    });
+
+    await it("сообщение можно записать в память", async () => {
+      await page.locator('[data-win="chat"] .msg [data-act="send"]').first().click();
+      await page.waitForTimeout(300);
+      await page.locator("#ctx button", { hasText: "Записать в память" }).click();
+      await page.waitForTimeout(600);
+      const facts = await page.evaluate(() => Memory.db.facts.map((f) => f.text));
+      ok(facts.some((f) => f.includes("стеммер")), "факт должен появиться: " + facts.length);
+    });
+
+    await it("удаление сущности убирает мёртвые связи", async () => {
+      const before = await page.evaluate(() => Object.keys(Links.db).length);
+      const removed = await page.evaluate(() => {
+        Tools.tasks.length = 0;
+        S.save("tools.tasks", []);
+        return Links.prune();
+      });
+      ok(removed > 0, "мёртвая связь должна быть убрана");
+      const after = await page.evaluate(() => Object.keys(Links.db).length);
+      ok(after < before, `связей должно стать меньше: ${before} → ${after}`);
+    });
+
+    /* ------------------------------------------------------------ search */
+    describe("сквозной поиск");
+    await it("находит одним запросом в чатах, заметках, задачах и памяти", async () => {
+      await page.evaluate(() => {
+        Object.keys(Win.open).forEach((k) => Win.open[k].close());
+        localStorage.setItem("sayumi.tools.notes", JSON.stringify([
+          { id: "sn1", title: "Стеммер", text: "Алгоритм Портера для русского", updated: Date.now() }
+        ]));
+        localStorage.setItem("sayumi.tools.tasks", JSON.stringify([
+          { id: "st1", text: "Переписать стеммер", col: "todo", prio: "normal", due: "", updated: Date.now() }
+        ]));
+      });
+      await page.reload({ waitUntil: "networkidle" });
+      await page.waitForTimeout(800);
+      const kinds = await page.evaluate(() => {
+        const hits = Search.all("стеммер", 40);
+        return [...new Set(hits.map((h) => h.kind))].sort();
+      });
+      ok(kinds.indexOf("note") >= 0, "заметка: " + kinds);
+      ok(kinds.indexOf("task") >= 0, "задача: " + kinds);
+      ok(kinds.indexOf("chat") >= 0, "чат: " + kinds);
+      ok(kinds.indexOf("fact") >= 0, "память: " + kinds);
+    });
+
+    await it("ищет по другой форме слова", async () => {
+      const hits = await page.evaluate(() => Search.all("стеммера", 20).length);
+      ok(hits > 0, "словоформа должна находиться");
+    });
+
+    await it("открывается по Ctrl+K и ведёт к найденному", async () => {
+      await page.keyboard.press("Control+k");
+      await page.waitForTimeout(500);
+      eq(await page.locator('[data-win="search"]').count(), 1);
+      await page.fill('[data-win="search"] input.search', "Портера");
+      await page.waitForTimeout(500);
+      ok(await page.locator('[data-win="search"] .item.result').count() > 0, "должны быть результаты");
+      await page.locator('[data-win="search"] .item.result').first().click();
+      await page.waitForTimeout(700);
+      ok(await page.locator('[data-win="notes"]').count() === 1 ||
+         await page.locator('[data-win="tasks"]').count() === 1,
+         "клик должен открыть нужное окно");
+      await page.evaluate(() => Object.keys(Win.open).forEach((k) => Win.open[k].close()));
+    });
+
     describe("консоль");
     await it("ни одной ошибки за весь прогон", () => {
       eq(errors, []);

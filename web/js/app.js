@@ -9,6 +9,7 @@
     S.qs("#nav-notes").addEventListener("click", function () { Tools.openNotes(); });
     S.qs("#nav-tasks").addEventListener("click", function () { Tools.openTasks(); });
     S.qs("#nav-files").addEventListener("click", function () { Tools.openFiles(); });
+    S.qs("#btn-search").addEventListener("click", function () { Search.open(""); });
     S.qs("#btn-persona").addEventListener("click", function () { Persona.openWindow(); });
     S.qs("#btn-settings").addEventListener("click", function () { Settings.openWindow(); });
 
@@ -55,6 +56,7 @@
       else if (e.key === ",") { e.preventDefault(); Settings.openWindow(); }
       else if (e.key === ".") { e.preventDefault(); Persona.openWindow(); }
       else if (e.key === "m") { e.preventDefault(); Memory.openWindow(); }
+      else if (e.key === "k") { e.preventDefault(); Search.open(""); }
     });
   }
 
@@ -71,6 +73,8 @@
         { label: "Граф заметок", act: function () { Tools.openGraph(); } },
         { label: "Память", act: function () { Memory.openWindow(); } },
         { label: "Проект", act: function () { Codebase.openWindow(); } },
+        { sep: true },
+        { label: "Поиск по всему", act: function () { Search.open(""); } },
         { sep: true },
         { label: S.t("persona"), act: function () { Persona.openWindow(); } },
         { label: S.t("settings"), act: function () { Settings.openWindow(); } }
@@ -207,6 +211,8 @@
     });
 
     /* deadlines are checked at start and then on a slow timer */
+    /* links to things that no longer exist are swept on start */
+    setTimeout(function () { Links.prune(); }, 3000);
     setTimeout(function () { Tools.checkDue(); }, 2400);
     setInterval(function () { Tools.checkDue(); }, 30 * 60 * 1000);
 

@@ -145,6 +145,7 @@
     var modelPanel = S.el("div", { class: "chat-bar hide" });
     buildModelPanel(modelPanel);
 
+    var linkRow = S.el("div", { class: "chat-bar links-bar" });
     var log = S.el("div", { class: "chat-log" });
 
     var foot = S.el("div", { class: "chat-foot" });
@@ -193,6 +194,7 @@
     main.appendChild(bar);
     main.appendChild(findRow);
     main.appendChild(modelPanel);
+    main.appendChild(linkRow);
     main.appendChild(log);
     main.appendChild(foot);
 
@@ -203,7 +205,7 @@
 
     ui = {
       root: root, side: side, list: list, find: findBox, title: title, chip: chip,
-      log: log, input: input, send: bSend, attRow: attRow, meter: meter,
+      log: log, input: input, send: bSend, attRow: attRow, meter: meter, linkRow: linkRow,
       hint: hintText, modelPanel: modelPanel, findRow: findRow, findIn: findIn,
       mic: bMic, tts: bTts
     };
@@ -358,6 +360,7 @@
     if (!ui.log) return;
     var s = current();
     ui.title.textContent = s.title;
+    drawLinks(s);
     ui.log.innerHTML = "";
 
     if (!s.messages.length) {
@@ -375,6 +378,18 @@
     });
     scrollDown();
     updateMeter();
+  }
+
+  function drawLinks(session) {
+    if (!ui.linkRow) return;
+    ui.linkRow.innerHTML = "";
+    var ref = Links.ref("chat", session.id);
+    if (!Links.count(ref)) { ui.linkRow.classList.add("hide"); return; }
+    ui.linkRow.classList.remove("hide");
+    ui.linkRow.appendChild(Links.chips(ref, {
+      hideEmpty: true,
+      onChange: function () { drawLinks(session); }
+    }));
   }
 
   function renderMessage(m) {
@@ -444,6 +459,7 @@
         acts.appendChild(pager);
       }
     }
+    act("arrowRight", "send", null, "В задачу, заметку или память");
     act("trash", "del", null, S.t("del"));
 
     wrap.appendChild(who);
@@ -497,6 +513,15 @@
         break;
       case "speak":
         speak(m.text);
+        break;
+      case "send":
+        Links.sendMenu(
+          btn.getBoundingClientRect().left,
+          btn.getBoundingClientRect().bottom + 4,
+          Links.ref("chat", s.id),
+          m.text,
+          function () { drawLog(); }
+        );
         break;
       case "del":
         s.messages.splice(idx, 1);
@@ -933,6 +958,7 @@
       "| `/graph` | граф связей заметок |",
       "| `/memory` | что она помнит |",
       "| `/code` | чтение файлов проекта |",
+      "| `/find текст` | поиск по чатам, заметкам, задачам и памяти |",
       "| `запомни: ...` | записать в долгую память |",
       "| `/persona` | настройки Sayumi |",
       "| `/settings` | настройки проекта |",
@@ -994,6 +1020,7 @@
         return true;
       case "memory": case "память": global.Memory.openWindow(); return true;
       case "code": case "проект": global.Codebase.openWindow(); return true;
+      case "find": case "найди": global.Search.open(rest); return true;
       case "notes": global.Tools.openNotes(); return true;
       case "graph": global.Tools.openGraph(); return true;
       case "tasks": global.Tools.openTasks(); return true;
@@ -1331,6 +1358,25 @@
     resetConfig: function () { cfg = Object.assign({}, DEF_CONFIG); persistConfig(); updateChip(); },
     PROVIDER_BASES: PROVIDER_BASES,
     exportAll: function () { return sessions; },
+    openSession: function (id) {
+      var found = sessions.filter(function (x) { return x.id === id; })[0];
+      if (!found) { S.toast("Чат не найден", "bad"); return; }
+      currentId = id;
+      persist();
+      openWindow();
+      drawSessions();
+      drawLog();
+      Win.get("chat").focus();
+    },
+    prefill: function (text) {
+      openWindow();
+      setTimeout(function () {
+        if (!ui.input) return;
+        ui.input.value = text;
+        autoGrow(ui.input);
+        ui.input.focus();
+      }, 120);
+    },
     clearAll: function () { sessions = []; newSession(false); persist(); if (ui.log) { drawSessions(); drawLog(); } },
     speak: speak,
     helpText: helpText

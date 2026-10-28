@@ -964,12 +964,50 @@
         });
     });
 
+    var send = I.btn("arrowRight", { title: "В задачу, заметку или чат" });
+    send.addEventListener("click", function () {
+      var box = send.getBoundingClientRect();
+      Menu.show(box.left, box.bottom + 4, [
+        {
+          icon: "☑", label: "Сделать задачей",
+          act: function () {
+            var task = Tools.addTask(fact.text);
+            Links.link(Links.ref("fact", fact.id), Links.ref("task", task.id));
+            S.toast("Добавила в задачи", "ok");
+            redraw();
+          }
+        },
+        {
+          icon: "▤", label: "Сохранить заметкой",
+          act: function () {
+            var note = Tools.addNote(fact.text.slice(0, 60), fact.text);
+            Links.link(Links.ref("fact", fact.id), Links.ref("note", note.id));
+            S.toast("Сохранила заметкой", "ok");
+            redraw();
+          }
+        },
+        {
+          icon: "⌕", label: "Найти везде",
+          act: function () { Search.open(fact.text.slice(0, 50)); }
+        }
+      ], "Отправить");
+    });
+
     var del = I.btn("trash", { class: "btn sm ghost danger", title: "Забыть" });
     del.addEventListener("click", function () { remove(fact.id); redraw(); });
 
     item.appendChild(pin);
     item.appendChild(text);
+    item.appendChild(send);
     item.appendChild(del);
+
+    var ref = Links.ref("fact", fact.id);
+    if (Links.count(ref)) {
+      var wrapLinks = S.el("div", { style: "flex:1 1 100%" });
+      wrapLinks.appendChild(Links.chips(ref, { hideEmpty: true, onChange: redraw }));
+      item.appendChild(wrapLinks);
+      item.style.flexWrap = "wrap";
+    }
     return item;
   }
 
@@ -1496,6 +1534,26 @@
       save();
     },
     openWindow: openWindow,
+    openFact: function (id) {
+      openWindow();
+      setTimeout(function () {
+        var win = Win.get("memory");
+        if (!win) return;
+        var tab = S.qsa(".rail-item", win.node).filter(function (b) {
+          return b.textContent.indexOf("Факты") === 0;
+        })[0];
+        if (tab) tab.click();
+        setTimeout(function () {
+          var fact = db.facts.filter(function (f) { return f.id === id; })[0];
+          var field = S.qs('[data-win="memory"] input.search');
+          if (fact && field) {
+            field.value = fact.text.split(" ").slice(0, 4).join(" ");
+            field.dispatchEvent(new Event("input", { bubbles: true }));
+          }
+          win.focus();
+        }, 120);
+      }, 140);
+    },
     exportAll: function () { return db; },
     importAll: function (data) {
       if (!data || !Array.isArray(data.facts)) return false;

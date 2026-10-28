@@ -81,10 +81,12 @@
     var bPreview = I.btn("eye", { title: "Предпросмотр" });
     var bLink = I.btn("brackets", { title: "Вставить ссылку на заметку" });
     var bGraph = I.btn("graph", { title: "Граф связей" });
+    var bSendNote = I.btn("arrowRight", { title: "В задачу, чат или память" });
     var bCopy = I.btn("copy", { title: "Копировать" });
     var bDown = I.btn("download", { title: "Выгрузить в .md" });
     var bDel = I.btn("trash", { class: "btn sm ghost danger", title: "Удалить заметку" });
-    [titleIn, bLink, bGraph, bPreview, bCopy, bDown, bDel].forEach(function (n) { bar.appendChild(n); });
+    [titleIn, bLink, bGraph, bSendNote, bPreview, bCopy, bDown, bDel]
+      .forEach(function (n) { bar.appendChild(n); });
 
     var editor = S.el("textarea", {
       class: "field",
@@ -150,10 +152,13 @@
       if (!n) return;
       var outgoing = linkNames(n.text);
       var incoming = backlinks(n);
-      if (!outgoing.length && !incoming.length) {
+      if (!outgoing.length && !incoming.length && !Links.count(Links.ref("note", n.id))) {
         links.appendChild(S.el("span", { class: "tiny muted",
           text: "Связей нет. Напишите [[Другая заметка]], чтобы связать." }));
-        return;
+      }
+      var ref = Links.ref("note", n.id);
+      if (Links.count(ref)) {
+        links.appendChild(Links.chips(ref, { hideEmpty: true, onChange: drawLinks }));
       }
       if (outgoing.length) {
         links.appendChild(S.el("span", { class: "tiny muted", text: "ведёт к:" }));
@@ -241,6 +246,13 @@
     }
 
     bGraph.addEventListener("click", openGraph);
+    bSendNote.addEventListener("click", function () {
+      var n = active();
+      if (!n) return;
+      var box = bSendNote.getBoundingClientRect();
+      Links.sendMenu(box.left, box.bottom + 4, Links.ref("note", n.id),
+        (n.title ? n.title + ". " : "") + (n.text || "").slice(0, 240), drawLinks);
+    });
 
     notesApi = {
       openById: function (id) {
@@ -775,13 +787,17 @@
         saveTasks();
         draw();
       });
-      var bChat = I.btn("arrowRight", { title: "Обсудить в чате" });
+      var bChat = I.btn("chat", { title: "Обсудить в чате" });
       bChat.addEventListener("click", function () {
-        Chat.openWindow();
-        setTimeout(function () {
-          var box = S.qs(".composer textarea");
-          if (box) { box.value = "Помоги с задачей: " + task.text; box.focus(); }
-        }, 120);
+        Chat.prefill("Помоги с задачей: " + task.text);
+        var session = Chat.exportAll().filter(function (x) { return x.id === S.load("chat.current", ""); })[0];
+        if (session) Links.link(Links.ref("task", task.id), Links.ref("chat", session.id));
+        draw();
+      });
+      var bSend = I.btn("arrowRight", { title: "В заметку или память" });
+      bSend.addEventListener("click", function (e) {
+        var box = bSend.getBoundingClientRect();
+        Links.sendMenu(box.left, box.bottom + 4, Links.ref("task", task.id), task.text, draw);
       });
       var bDel = I.btn("close", { class: "btn sm ghost danger", title: "Удалить" });
       bDel.addEventListener("click", function () {
@@ -789,8 +805,13 @@
         saveTasks();
         draw();
       });
-      [bDate, bPrio, bChat, bDel].forEach(function (b) { foot.appendChild(b); });
+      [bDate, bPrio, bChat, bSend, bDel].forEach(function (b) { foot.appendChild(b); });
       node.appendChild(foot);
+
+      var ref = Links.ref("task", task.id);
+      if (Links.count(ref)) {
+        node.appendChild(Links.chips(ref, { hideEmpty: true, onChange: draw }));
+      }
 
       node.addEventListener("dragstart", function (e) {
         e.dataTransfer.setData("text/plain", task.id);
@@ -1090,8 +1111,61 @@
     });
   }
 
+  /* entry points other modules use to create and reveal things */
+  function addTask(text, extra) {
+    var task = Object.assign({
+      id: S.uid("t"), text: String(text || "").trim().replace(/\s+/g, " "),
+      col: "todo", done: false, prio: "normal", due: "", updated: Date.now()
+    }, extra || {});
+    tasks.unshift(task);
+    saveTasks();
+    if (Win.get("tasks")) { Win.get("tasks").close(); openTasks(); }
+    return task;
+  }
+
+  function addNote(title, text) {
+    var note = {
+      id: S.uid("n"),
+      title: String(title || "Новая заметка").slice(0, 80),
+      text: String(text || ""),
+      updated: Date.now()
+    };
+    notes.unshift(note);
+    saveNotes();
+    return note;
+  }
+
+  function openTask(id) {
+    openTasks();
+    setTimeout(function () {
+      var node = S.qs('[data-win="tasks"] .task[data-id="' + id + '"]');
+      if (!node) {
+        var sel = S.qs('[data-win="tasks"] select');
+        if (sel) { sel.value = "board"; sel.dispatchEvent(new Event("change")); }
+        node = S.qs('[data-win="tasks"] .task[data-id="' + id + '"]');
+      }
+      if (node) {
+        node.scrollIntoView({ block: "center" });
+        node.classList.add("flash");
+        setTimeout(function () { node.classList.remove("flash"); }, 1400);
+      }
+      Win.get("tasks").focus();
+    }, 140);
+  }
+
+  function openNote(id) {
+    openNotes();
+    setTimeout(function () {
+      if (notesApi) notesApi.openById(id);
+    }, 140);
+  }
+
   global.Tools = {
     openNotes: openNotes,
+    addTask: addTask,
+    addNote: addNote,
+    openTask: openTask,
+    openNote: openNote,
     checkDue: checkDue,
     dueState: dueState,
     openGraph: openGraph,
