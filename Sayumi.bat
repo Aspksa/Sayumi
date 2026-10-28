@@ -47,13 +47,43 @@ call :detect_media
 call :have_ps
 
 set "ARG=%~1"
-if /i "%ARG%"=="/run"   goto :run_start
-if /i "%ARG%"=="-run"   goto :run_start
+if /i "%ARG%"=="/run"   goto :auto_go
+if /i "%ARG%"=="-run"   goto :auto_go
 if /i "%ARG%"=="/setup" goto :menu_python
 if /i "%ARG%"=="/help"  goto :cli_help
 if /i "%ARG%"=="-h"     goto :cli_help
 if /i "%ARG%"=="/?"     goto :cli_help
-goto :menu
+if /i "%ARG%"=="/menu"  goto :menu
+if /i "%ARG%"=="-menu"  goto :menu
+goto :auto
+
+
+rem ============================================================================
+rem  AUTOMATIC START - what a double click does
+rem  Finds Python, installs it if missing, starts the server, opens the site.
+rem  Nothing is asked. Press M during the short countdown to get the menu.
+rem ============================================================================
+:auto
+cls
+color 06
+title Sayumi
+call :header
+echo.
+echo   !T_AUTO_TITLE!
+echo.
+call :line
+echo.
+echo   !T_AUTO_HINT!
+echo.
+where choice >nul 2>&1
+if errorlevel 1 goto :auto_go
+choice /c MZ /n /t 3 /d Z >nul 2>&1
+if errorlevel 2 goto :auto_go
+if errorlevel 1 goto :menu
+
+:auto_go
+set "AUTO=1"
+goto :run_start
 
 
 rem ============================================================================
@@ -115,6 +145,7 @@ if not exist "%OPT_DATA%" md "%OPT_DATA%" >nul 2>&1
 
 call :find_python
 if defined PY goto :run_server
+if defined AUTO goto :auto_python
 
 call :warn "!T_WARN_NOPY!"
 echo.
@@ -129,6 +160,16 @@ if "%CH2%"=="1" goto :run_fix_portable
 if "%CH2%"=="2" goto :run_fix_system
 if "%CH2%"=="3" goto :run_offline
 goto :menu
+
+:auto_python
+echo.
+call :warn "!T_AUTO_NOPY!"
+call :install_python_portable
+call :find_python
+if defined PY goto :run_server
+echo.
+call :warn "!T_AUTO_PYFAIL!"
+goto :run_offline
 
 :run_fix_portable
 call :install_python_portable
@@ -148,6 +189,8 @@ echo        %WEB%\index.html
 goto :after_run
 
 :run_server
+call :check_running
+if defined ALREADY goto :run_attach
 call :port_pick
 set "OPT_FIRSTRUN=0"
 call :save_config
@@ -166,6 +209,11 @@ echo.
 echo   !T_RUN_STOP!
 goto :after_run
 
+:run_attach
+call :ok "!T_RUN_ALREADY! http://127.0.0.1:!OPT_PORT!/"
+call :open_url "http://127.0.0.1:!OPT_PORT!/"
+goto :after_run
+
 :run_offline
 call :warn "!T_RUN_FILE!"
 set "OPT_FIRSTRUN=0"
@@ -177,6 +225,17 @@ goto :after_run
 echo.
 call :line
 echo.
+if not defined AUTO goto :after_run_menu
+echo   !T_AUTO_CLOSE!
+echo.
+where choice >nul 2>&1
+if errorlevel 1 goto :bye
+choice /c MZ /n /t 6 /d Z >nul 2>&1
+if errorlevel 2 goto :bye
+set "AUTO="
+goto :menu
+
+:after_run_menu
 echo   !T_ANY_KEY!
 pause >nul
 goto :menu
@@ -834,6 +893,17 @@ if /i "%OPT_PORTABLE%"=="auto" set "OPT_PORTABLE=off"
 if /i "%OPT_PORTABLE%"=="on" set "OPT_DATA=%ROOT%\data"
 goto :eof
 
+:check_running
+set "ALREADY="
+netstat -ano 2>nul | find ":%OPT_PORT% " >nul
+if errorlevel 1 goto :eof
+where curl.exe >nul 2>&1
+if errorlevel 1 goto :eof
+curl.exe -s --max-time 3 "http://127.0.0.1:%OPT_PORT%/api/health" 2>nul | find "Sayumi" >nul
+if errorlevel 1 goto :eof
+set "ALREADY=1"
+goto :eof
+
 :port_pick
 set /a _tries=0
 :pp_loop
@@ -880,8 +950,9 @@ goto :eof
 
 :cli_help
 echo.
-echo   Sayumi.bat          interactive menu
-echo   Sayumi.bat /run     start server and open browser
+echo   Sayumi.bat          start everything and open the site
+echo   Sayumi.bat /menu    interactive menu
+echo   Sayumi.bat /run     same as no argument
 echo   Sayumi.bat /setup   python setup screen
 echo   Sayumi.bat /help    this help
 echo.
@@ -923,6 +994,12 @@ set "T_M_DEPLOY=Развернуть копию на диск или флешк�
 set "T_M_DIAG=Диагностика"
 set "T_M_LANG=Язык / Language"
 set "T_M_EXIT=Выход"
+set "T_AUTO_TITLE=Запускаю Sayumi"
+set "T_AUTO_HINT=Всё делается само. Нажмите M, чтобы открыть меню."
+set "T_AUTO_NOPY=Python не найден, ставлю переносимую версию в папку проекта."
+set "T_AUTO_PYFAIL=Установить Python не вышло, открываю интерфейс без сервера."
+set "T_AUTO_CLOSE=Окно закроется само. Нажмите M, чтобы открыть меню."
+set "T_RUN_ALREADY=Sayumi уже запущена, открываю:"
 set "T_RUN_PREP=Подготовка к запуску..."
 set "T_RUN_SERVER=Сервер:"
 set "T_RUN_DONE=Готово. Браузер открыт."
@@ -1017,6 +1094,12 @@ set "T_M_DEPLOY=Deploy a copy to drive or flash stick"
 set "T_M_DIAG=Diagnostics"
 set "T_M_LANG=Language / Язык"
 set "T_M_EXIT=Exit"
+set "T_AUTO_TITLE=Starting Sayumi"
+set "T_AUTO_HINT=Everything runs by itself. Press M to open the menu."
+set "T_AUTO_NOPY=Python not found, installing a portable copy into the project folder."
+set "T_AUTO_PYFAIL=Could not install Python, opening the interface without a server."
+set "T_AUTO_CLOSE=This window closes by itself. Press M to open the menu."
+set "T_RUN_ALREADY=Sayumi is already running, opening:"
 set "T_RUN_PREP=Preparing to start..."
 set "T_RUN_SERVER=Server:"
 set "T_RUN_DONE=Done. Browser opened."
