@@ -13,6 +13,7 @@ Pure standard library. Serves the web interface and a small JSON API:
     GET  /api/file?path=rel       read a workspace text file
     POST /api/file                write a workspace text file {path, text}
     POST /api/upload              store a base64 payload  {name, data}
+    POST /api/models              list the models a provider offers
     POST /api/llm                 proxy a chat completion to an LLM provider
     POST /api/shutdown            stop the server (localhost only)
 
@@ -38,6 +39,11 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 APP_NAME = "Sayumi"
+# OpenAI compatible endpoints we ship a default address for
+PROVIDER_BASES = {
+    "cloudru": "https://foundation-models.api.cloud.ru/v1",
+    "openai": "https://api.openai.com/v1",
+}
 APP_VERSION = "1.0.0"
 MAX_BODY = 32 * 1024 * 1024
 
@@ -167,8 +173,9 @@ def build_llm_request(payload: dict):
         }
         return url, headers, json.dumps(body).encode("utf-8"), "ollama"
 
-    # default: any OpenAI compatible endpoint (OpenAI, LM Studio, vLLM, groq...)
-    url = (base or "https://api.openai.com/v1") + "/chat/completions"
+    # default: any OpenAI compatible endpoint
+    # (OpenAI, Cloud.ru Foundation Models, LM Studio, vLLM, groq...)
+    url = (base or PROVIDER_BASES.get(provider, PROVIDER_BASES["openai"])) + "/chat/completions"
     headers = {"content-type": "application/json"}
     if api_key:
         headers["authorization"] = "Bearer " + api_key
@@ -417,6 +424,9 @@ class SayumiHandler(BaseHTTPRequestHandler):
             except Exception as exc:
                 return self.send_json({"ok": False, "error": str(exc)}, 500)
 
+        if path == "/api/models":
+            return self.handle_models(body)
+
         if path == "/api/llm":
             return self.handle_llm(body)
 
@@ -426,6 +436,47 @@ class SayumiHandler(BaseHTTPRequestHandler):
             return None
 
         return self.send_json({"ok": False, "error": "unknown endpoint"}, 404)
+
+    # ------------------------------------------------------------- catalogue
+    def handle_models(self, body: dict):
+        """Ask the provider which models it actually offers."""
+        provider = (body.get("provider") or "openai").lower()
+        base = (body.get("baseUrl") or "").rstrip("/")
+        key = body.get("apiKey") or ""
+
+        if provider == "ollama":
+            url = (base or "http://127.0.0.1:11434") + "/api/tags"
+            headers = {}
+        elif provider == "anthropic":
+            url = (base or "https://api.anthropic.com") + "/v1/models"
+            headers = {"x-api-key": key, "anthropic-version": "2023-06-01"}
+        else:
+            url = (base or PROVIDER_BASES.get(provider, PROVIDER_BASES["openai"])) + "/models"
+            headers = {}
+            if key:
+                headers["authorization"] = "Bearer " + key
+
+        request = urllib.request.Request(url, headers=headers, method="GET")
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                data = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")[:600]
+            return self.send_json({"ok": False, "error": "HTTP %s" % exc.code, "detail": detail})
+        except Exception as exc:
+            return self.send_json({"ok": False, "error": str(exc)})
+
+        models = []
+        try:
+            if provider == "ollama":
+                models = [m.get("name", "") for m in (data.get("models") or [])]
+            else:
+                # model ids may contain a slash, keep them whole
+                models = [m.get("id", "") for m in (data.get("data") or [])]
+        except Exception:
+            models = []
+        models = sorted(set(m for m in models if m))
+        return self.send_json({"ok": True, "models": models, "count": len(models)})
 
     # ------------------------------------------------------------------ llm
     def handle_llm(self, body: dict):

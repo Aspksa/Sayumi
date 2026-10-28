@@ -4,6 +4,13 @@
 (function (global) {
   "use strict";
 
+  var PROVIDER_BASES = {
+    cloudru: "https://foundation-models.api.cloud.ru/v1",
+    openai: "https://api.openai.com/v1",
+    anthropic: "https://api.anthropic.com",
+    ollama: "http://127.0.0.1:11434"
+  };
+
   var DEF_CONFIG = {
     provider: "local",
     model: "gpt-4o-mini",
@@ -241,7 +248,8 @@
 
   function updateChip() {
     if (!ui.chip) return;
-    var names = { local: "offline", openai: "openai", anthropic: "claude", ollama: "ollama" };
+    var names = { local: "offline", cloudru: "cloud.ru", openai: "openai",
+                  anthropic: "claude", ollama: "ollama" };
     ui.chip.textContent = (names[cfg.provider] || cfg.provider) +
       (cfg.provider === "local" ? "" : " · " + cfg.model);
   }
@@ -706,7 +714,9 @@
         options: { temperature: request.temperature }
       };
     } else {
-      url = (request.baseUrl || "https://api.openai.com/v1") + "/chat/completions";
+      var openaiBase = request.baseUrl ||
+        PROVIDER_BASES[request.provider] || PROVIDER_BASES.openai;
+      url = openaiBase + "/chat/completions";
       headers = { "content-type": "application/json", authorization: "Bearer " + request.apiKey };
       body = {
         model: request.model, temperature: request.temperature,
@@ -1019,8 +1029,9 @@
     panel.style.flexWrap = "wrap";
 
     var provider = S.el("select");
-    [["local", "Автономно (без модели)"], ["openai", "OpenAI-совместимый"],
-     ["anthropic", "Anthropic"], ["ollama", "Ollama (локально)"]].forEach(function (o) {
+    [["local", "Автономно (без модели)"], ["cloudru", "Cloud.ru Foundation Models"],
+     ["openai", "OpenAI-совместимый"], ["anthropic", "Anthropic"],
+     ["ollama", "Ollama (локально)"]].forEach(function (o) {
       provider.appendChild(S.el("option", { value: o[0], text: o[1] }));
     });
     provider.value = cfg.provider;
@@ -1044,9 +1055,12 @@
     });
 
     provider.addEventListener("change", function () {
+      base.placeholder = PROVIDER_BASES[provider.value] || "base url (необязательно)";
       if (provider.value === "ollama" && !model.value) model.value = "llama3.1";
       if (provider.value === "anthropic" && !/claude/.test(model.value)) model.value = "claude-sonnet-4-5";
+      if (provider.value === "cloudru" && !model.value) model.value = "openai/gpt-oss-120b";
     });
+    base.placeholder = PROVIDER_BASES[cfg.provider] || "base url (необязательно)";
 
     [["Провайдер", provider], ["Модель", model], ["URL", base], ["Ключ", key], ["t°", temp]]
       .forEach(function (pair) {
@@ -1193,6 +1207,7 @@
     get config() { return cfg; },
     setConfig: function (patch) { Object.assign(cfg, patch); persistConfig(); updateChip(); },
     resetConfig: function () { cfg = Object.assign({}, DEF_CONFIG); persistConfig(); updateChip(); },
+    PROVIDER_BASES: PROVIDER_BASES,
     exportAll: function () { return sessions; },
     clearAll: function () { sessions = []; newSession(false); persist(); if (ui.log) { drawSessions(); drawLog(); } },
     speak: speak,

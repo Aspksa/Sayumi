@@ -423,6 +423,98 @@
   }
 
   /* -------------------------------------------------------------- model */
+  /* a model picker fed by the provider's own catalogue */
+  function modelRow(parent, cfg, redraw) {
+    var cacheKey = "chat.models." + cfg.provider;
+    var cached = S.load(cacheKey, []);
+
+    var row = S.el("div", { class: "row" });
+    var lab = S.el("div", { class: "lab" });
+    lab.appendChild(document.createTextNode("Модель"));
+    lab.appendChild(S.el("small", {
+      text: cached.length ? "в каталоге " + cached.length : "список ещё не загружен"
+    }));
+    row.appendChild(lab);
+
+    var ctl = S.el("div", { class: "ctl" });
+    var sel = S.el("select", { style: "min-width:260px" });
+
+    function fill(list) {
+      sel.innerHTML = "";
+      list.forEach(function (id) {
+        sel.appendChild(S.el("option", { value: id, text: id }));
+      });
+      if (cfg.model && list.indexOf(cfg.model) < 0) {
+        sel.appendChild(S.el("option", { value: cfg.model, text: cfg.model + "  (своя)" }));
+      }
+      sel.appendChild(S.el("option", { value: "__manual", text: "Ввести вручную…" }));
+      sel.value = cfg.model || (list[0] || "__manual");
+    }
+    fill(cached);
+
+    var manual = S.el("input", {
+      type: "text",
+      value: cfg.model || "",
+      placeholder: "id модели целиком, вместе со слешем",
+      style: "min-width:260px" + (cached.length ? ";display:none" : "")
+    });
+    if (!cached.length) sel.style.display = "none";
+
+    sel.addEventListener("change", function () {
+      if (sel.value === "__manual") {
+        sel.style.display = "none";
+        manual.style.display = "";
+        manual.focus();
+        return;
+      }
+      Chat.setConfig({ model: sel.value });
+    });
+    manual.addEventListener("change", function () {
+      Chat.setConfig({ model: manual.value.trim() });
+    });
+
+    var load = I.btn("refresh", { class: "btn sm", title: "Загрузить список моделей" });
+    var note = S.el("div", { class: "note tiny", style: "margin:-4px 0 10px" });
+
+    load.addEventListener("click", function () {
+      if (!S.server.up) {
+        note.textContent = "Нужен запущенный сервер: откройте Sayumi через Sayumi.bat.";
+        return;
+      }
+      note.textContent = "Запрашиваю каталог...";
+      S.api("/api/models", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: cfg.provider,
+          baseUrl: cfg.baseUrl,
+          apiKey: cfg.apiKey
+        })
+      }).then(function (res) {
+        if (!res.ok) {
+          note.textContent = "Не вышло: " + (res.error || "?") + " " + (res.detail || "").slice(0, 180);
+          return;
+        }
+        if (!res.models.length) {
+          note.textContent = "Каталог пуст — проверьте ключ и адрес.";
+          return;
+        }
+        S.save(cacheKey, res.models);
+        note.textContent = "Загружено моделей: " + res.models.length;
+        redraw();
+      }).catch(function (e) {
+        note.textContent = "Ошибка: " + e.message;
+      });
+    });
+
+    ctl.appendChild(sel);
+    ctl.appendChild(manual);
+    ctl.appendChild(load);
+    row.appendChild(ctl);
+    parent.appendChild(row);
+    parent.appendChild(note);
+  }
+
   function drawModel(root, redraw) {
     var cfg = Chat.config;
 
@@ -431,26 +523,65 @@
 
     rowSelect(sec, "Провайдер", [
       ["local", "Автономно, без модели"],
+      ["cloudru", "Cloud.ru Foundation Models"],
       ["openai", "OpenAI-совместимый"],
       ["anthropic", "Anthropic"],
       ["ollama", "Ollama, локально"]
     ], cfg.provider, function (v) {
-      var patch = { provider: v };
-      if (v === "ollama" && !/:/.test(cfg.model)) patch.model = "llama3.1";
+      var patch = { provider: v, baseUrl: "" };
+      if (v === "cloudru") patch.model = "openai/gpt-oss-120b";
+      if (v === "ollama") patch.model = "llama3.1";
       if (v === "anthropic") patch.model = "claude-sonnet-4-5";
       if (v === "openai") patch.model = "gpt-4o-mini";
       Chat.setConfig(patch);
       redraw();
     });
 
-    if (cfg.provider !== "local") {
-      rowText(sec, "Модель", cfg.model, function (v) { Chat.setConfig({ model: v }); });
-      rowText(sec, "Base URL", cfg.baseUrl, function (v) { Chat.setConfig({ baseUrl: v }); });
+    if (cfg.provider === "local") {
+      sec.appendChild(S.el("div", { class: "note tiny",
+        text: "Выберите провайдера выше, чтобы подключить настоящую модель." }));
+    } else {
+      modelRow(sec, cfg, redraw);
+
+      var placeholder = (Chat.PROVIDER_BASES && Chat.PROVIDER_BASES[cfg.provider]) || "";
+      var baseInput = rowText(sec, "Адрес API", cfg.baseUrl,
+        function (v) { Chat.setConfig({ baseUrl: v.trim() }); });
+      baseInput.placeholder = placeholder;
+      baseInput.style.minWidth = "260px";
+      if (!cfg.baseUrl && placeholder) {
+        sec.appendChild(S.el("div", { class: "note tiny", style: "margin:-4px 0 10px",
+          text: "Пусто — используется адрес по умолчанию: " + placeholder }));
+      }
+
       if (cfg.provider !== "ollama") {
-        var keyInput = rowText(sec, "API ключ", cfg.apiKey, function (v) { Chat.setConfig({ apiKey: v }); }, "password");
+        var keyInput = rowText(sec, "API ключ", cfg.apiKey,
+          function (v) { Chat.setConfig({ apiKey: v.trim() }); }, "password");
         keyInput.setAttribute("autocomplete", "off");
-        sec.appendChild(S.el("div", { class: "note tiny",
-          text: "Ключ хранится только в этом браузере, на вашем компьютере." }));
+        keyInput.style.minWidth = "260px";
+
+        var keyNote = S.el("div", { class: "note tiny", style: "margin:-4px 0 10px" });
+        keyNote.textContent = cfg.apiKey
+          ? "Ключ сохранён в этом браузере, длина " + cfg.apiKey.length + " символов."
+          : "Ключ хранится только в этом браузере, на вашем компьютере.";
+        sec.appendChild(keyNote);
+
+        if (cfg.apiKey) {
+          var keyActs = S.el("div", { class: "inline", style: "margin-bottom:8px" });
+          var bWipe = S.el("button", { class: "btn sm danger", text: "Стереть ключ" });
+          bWipe.addEventListener("click", function () {
+            Chat.setConfig({ apiKey: "" });
+            redraw();
+          });
+          keyActs.appendChild(bWipe);
+          sec.appendChild(keyActs);
+        }
+      }
+
+      if (cfg.provider === "cloudru") {
+        sec.appendChild(S.el("div", { class: "note tiny" },
+          "Ключ берётся в личном кабинете Cloud.ru, сервис Foundation Models. " +
+          "Список моделей загружается кнопкой обновления рядом с полем модели — " +
+          "идентификатор нужно хранить целиком, вместе со слешем."));
       }
     }
 
@@ -467,27 +598,31 @@
       function (v) { Chat.setConfig({ tts: v }); });
 
     var sec3 = section(root, "Проверка", "Пробный запрос к провайдеру", "check");
-    var out = S.el("div", { class: "note tiny muted", text: "" });
+    var out = S.el("div", { class: "note tiny muted" });
     var bTest = S.el("button", { class: "btn primary", text: "Проверить соединение" });
     bTest.addEventListener("click", function () {
-      out.textContent = "Проверяю...";
-      if (cfg.provider === "local") { out.textContent = "Автономный режим: внешние запросы не нужны."; return; }
-      var probe = {
-        provider: cfg.provider, model: cfg.model, baseUrl: cfg.baseUrl,
-        apiKey: cfg.apiKey, system: "", stream: false, maxTokens: 32,
-        temperature: 0, messages: [{ role: "user", content: "ping" }]
-      };
-      if (!S.server.up) {
-        out.textContent = "Локальный сервер не запущен — проверка пойдёт прямо из браузера и может быть заблокирована CORS.";
+      if (cfg.provider === "local") {
+        out.textContent = "Автономный режим: внешние запросы не нужны.";
+        return;
       }
-      var url = S.server.up ? S.server.base + "/api/llm" : null;
-      if (!url) { out.textContent += " Запустите Sayumi.bat для надёжной проверки."; return; }
-      fetch(url, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(probe)
-      }).then(function (r) { return r.json(); }).then(function (d) {
-        out.textContent = d.ok ? "Соединение в порядке. Ответ: " + (d.text || "").slice(0, 80)
-          : "Ошибка: " + (d.error || "?") + " " + (d.detail || "").slice(0, 160);
+      if (!S.server.up) {
+        out.textContent = "Локальный сервер не запущен. Запустите Sayumi.bat — " +
+          "иначе браузер заблокирует запрос по CORS.";
+        return;
+      }
+      out.textContent = "Проверяю...";
+      S.api("/api/llm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: cfg.provider, model: cfg.model, baseUrl: cfg.baseUrl,
+          apiKey: cfg.apiKey, system: "", stream: false, maxTokens: 32,
+          temperature: 0, messages: [{ role: "user", content: "Ответь одним словом: привет" }]
+        })
+      }).then(function (d) {
+        out.textContent = d.ok
+          ? "Работает. Ответ модели: " + (d.text || "").slice(0, 120)
+          : "Ошибка: " + (d.error || "?") + " " + (d.detail || "").slice(0, 200);
       }).catch(function (e) { out.textContent = "Ошибка: " + e.message; });
     });
     sec3.appendChild(S.el("div", { class: "inline" })).appendChild(bTest);
