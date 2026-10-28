@@ -124,6 +124,42 @@
     return input;
   }
 
+  function fontRow(parent, label, list, value, onChange, mono) {
+    var row = S.el("div", { class: "row" });
+    row.appendChild(S.el("div", { class: "lab", text: label }));
+    var ctl = S.el("div", { class: "ctl" });
+    var sel = S.el("select", { style: "min-width:190px" });
+    var missing = 0;
+    list.forEach(function (f) {
+      if (f.id && !Theme.hasFont(f.id)) { missing++; return; }
+      var option = S.el("option", { value: f.id, text: Theme.label(f) });
+      option.style.fontFamily = f.id ? '"' + f.id + '"' : "inherit";
+      sel.appendChild(option);
+    });
+    if (!S.qsa("option", sel).some(function (o) { return o.value === value; })) {
+      sel.appendChild(S.el("option", { value: value, text: value + " (нет в системе)" }));
+    }
+    sel.value = value;
+    sel.addEventListener("change", function () { onChange(sel.value); });
+    ctl.appendChild(sel);
+    row.appendChild(ctl);
+    parent.appendChild(row);
+
+    var sample = S.el("div", {
+      class: "note tiny",
+      style: "margin:-4px 0 10px;padding:7px 10px;border:var(--bw) solid var(--line-soft);" +
+             "border-radius:var(--r-s);background:var(--bg-0);" +
+             (mono ? "font-family:var(--font-mono)" : "font-family:var(--font-ui)"),
+      text: mono ? "const sayumi = 1234567890;  Il1 O0" : "Съешь ещё этих мягких булок 0123"
+    });
+    parent.appendChild(sample);
+    if (missing) {
+      parent.appendChild(S.el("div", { class: "note tiny muted",
+        text: "Скрыто шрифтов, которых нет в системе: " + missing }));
+    }
+    return sel;
+  }
+
   function swatchCard(entry, isOn, fill, onPick) {
     var wrap = S.el("div", { class: "sw-wrap" + (isOn ? " on" : ""), title: Theme.label(entry) });
     var sw = S.el("div", { class: "swatch" + (isOn ? " on" : "") });
@@ -185,10 +221,6 @@
       ["rays", "Лучи"], ["noise", "Зерно"]
     ], st.texture, function (v) { Theme.set({ texture: v }); });
 
-    rowSelect(sec3, "Углы", [
-      ["sharp", "Прямые"], ["soft", "Мягкие"], ["round", "Круглые"]
-    ], st.corners, function (v) { Theme.set({ corners: v }); });
-
     rowSelect(sec3, "Плотность", [
       ["compact", "Плотно"], ["cozy", "Обычно"], ["roomy", "Просторно"]
     ], st.density, function (v) { Theme.set({ density: v }); });
@@ -201,6 +233,23 @@
 
     rowSwitch(sec3, "Анимации", st.motion === "on",
       function (v) { Theme.set({ motion: v ? "on" : "off" }); }, "Выключите, если интерфейс подтормаживает");
+
+
+    var secF = section(root, "Шрифты", "Показаны только те, что установлены в системе.");
+    fontRow(secF, "Интерфейс", Theme.FONTS_UI, st.fontUI, function (v) {
+      Theme.set({ fontUI: v });
+    });
+    fontRow(secF, "Моноширинный", Theme.FONTS_MONO, st.fontMono, function (v) {
+      Theme.set({ fontMono: v });
+    }, true);
+
+    var secB = section(root, "Рамки и тени", "Тонкая подстройка формы интерфейса.");
+    rowRange(secB, "Скругление углов", st.radius, 0, 26, 1,
+      function (v) { Theme.set({ radius: v }); }, " px");
+    rowRange(secB, "Толщина рамок", st.borderW, 0, 3, 1,
+      function (v) { Theme.set({ borderW: v }); }, " px");
+    rowRange(secB, "Глубина тени", st.shadow, 0, 100, 1,
+      function (v) { Theme.set({ shadow: v }); }, " %");
 
     var acts = S.el("div", { class: "inline" });
     var bReset = S.el("button", { class: "btn danger", text: "Сбросить оформление" });

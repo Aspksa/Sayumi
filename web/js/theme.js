@@ -40,6 +40,68 @@
     { id: "night",    ru: "Ночной сад", en: "Night",     bg: "midnight", accent: "violet",    texture: "noise",    glow: "on" }
   ];
 
+  /* fonts offered in the settings; availability is probed at runtime */
+  var FONTS_UI = [
+    { id: "", ru: "По умолчанию", en: "Default", stack: '"Segoe UI", "Inter", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif' },
+    { id: "Segoe UI", ru: "Segoe UI", en: "Segoe UI" },
+    { id: "Inter", ru: "Inter", en: "Inter" },
+    { id: "Roboto", ru: "Roboto", en: "Roboto" },
+    { id: "Calibri", ru: "Calibri", en: "Calibri" },
+    { id: "Candara", ru: "Candara", en: "Candara" },
+    { id: "Corbel", ru: "Corbel", en: "Corbel" },
+    { id: "Tahoma", ru: "Tahoma", en: "Tahoma" },
+    { id: "Verdana", ru: "Verdana", en: "Verdana" },
+    { id: "Trebuchet MS", ru: "Trebuchet MS", en: "Trebuchet MS" },
+    { id: "Arial", ru: "Arial", en: "Arial" },
+    { id: "Georgia", ru: "Georgia", en: "Georgia" },
+    { id: "Constantia", ru: "Constantia", en: "Constantia" },
+    { id: "Palatino Linotype", ru: "Palatino Linotype", en: "Palatino Linotype" },
+    { id: "Times New Roman", ru: "Times New Roman", en: "Times New Roman" }
+  ];
+
+  var FONTS_MONO = [
+    { id: "", ru: "По умолчанию", en: "Default", stack: '"JetBrains Mono", "Cascadia Mono", "Consolas", "SFMono-Regular", monospace' },
+    { id: "Consolas", ru: "Consolas", en: "Consolas" },
+    { id: "Cascadia Mono", ru: "Cascadia Mono", en: "Cascadia Mono" },
+    { id: "Cascadia Code", ru: "Cascadia Code", en: "Cascadia Code" },
+    { id: "JetBrains Mono", ru: "JetBrains Mono", en: "JetBrains Mono" },
+    { id: "Fira Code", ru: "Fira Code", en: "Fira Code" },
+    { id: "Source Code Pro", ru: "Source Code Pro", en: "Source Code Pro" },
+    { id: "Lucida Console", ru: "Lucida Console", en: "Lucida Console" },
+    { id: "Courier New", ru: "Courier New", en: "Courier New" }
+  ];
+
+  /* a font counts as present when it renders differently from a known fallback */
+  var fontCache = {};
+  function hasFont(name) {
+    if (!name) return true;
+    if (fontCache[name] !== undefined) return fontCache[name];
+    var ok = false;
+    try {
+      if (document.fonts && document.fonts.check) {
+        ok = document.fonts.check('12px "' + name + '"');
+      }
+      if (!ok) {
+        var canvas = document.createElement("canvas");
+        var ctx = canvas.getContext("2d");
+        var probe = "mmmwwwiiilll0123";
+        ctx.font = '72px monospace';
+        var base = ctx.measureText(probe).width;
+        ctx.font = '72px "' + name + '", monospace';
+        ok = ctx.measureText(probe).width !== base;
+      }
+    } catch (e) {
+      ok = false;
+    }
+    fontCache[name] = ok;
+    return ok;
+  }
+
+  function fontStack(entry, fallback) {
+    if (!entry || !entry.id) return (entry && entry.stack) || fallback;
+    return '"' + entry.id + '", ' + fallback;
+  }
+
   var DEFAULTS = {
     bg: "black",
     accent: "gold",
@@ -49,6 +111,11 @@
     density: "cozy",
     motion: "on",
     fontScale: 100,
+    fontUI: "",
+    fontMono: "",
+    radius: 10,
+    borderW: 1,
+    shadow: 70,
     preset: "kitsune"
   };
 
@@ -64,6 +131,20 @@
     root.setAttribute("data-density", state.density);
     root.setAttribute("data-motion", state.motion);
     root.style.setProperty("--fs", (14 * (state.fontScale / 100)).toFixed(1) + "px");
+
+    var uiFallback = FONTS_UI[0].stack;
+    var monoFallback = FONTS_MONO[0].stack;
+    root.style.setProperty("--font-ui",
+      state.fontUI ? '"' + state.fontUI + '", ' + uiFallback : uiFallback);
+    root.style.setProperty("--font-mono",
+      state.fontMono ? '"' + state.fontMono + '", ' + monoFallback : monoFallback);
+
+    var r = Number(state.radius);
+    root.style.setProperty("--r-s", Math.round(r * 0.6) + "px");
+    root.style.setProperty("--r-m", r + "px");
+    root.style.setProperty("--r-l", Math.round(r * 1.6) + "px");
+    root.style.setProperty("--bw", Number(state.borderW) + "px");
+    root.style.setProperty("--sh", (Number(state.shadow) / 100).toFixed(2));
     var meta = S.qs('meta[name="theme-color"]');
     if (meta) {
       var bg = BACKGROUNDS.filter(function (b) { return b.id === state.bg; })[0];
@@ -105,6 +186,10 @@
 
   global.Theme = {
     BACKGROUNDS: BACKGROUNDS,
+    FONTS_UI: FONTS_UI,
+    FONTS_MONO: FONTS_MONO,
+    hasFont: hasFont,
+    fontStack: fontStack,
     ACCENTS: ACCENTS,
     PRESETS: PRESETS,
     DEFAULTS: DEFAULTS,

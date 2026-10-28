@@ -809,6 +809,7 @@
       "| `/theme графит золото` | сменить оформление |",
       "| `/lang ru` | язык интерфейса |",
       "| `/notes`, `/tasks`, `/files` | открыть панели |",
+      "| `/graph` | граф связей заметок |",
       "| `/persona` | настройки Sayumi |",
       "| `/settings` | настройки проекта |",
       "| `/tts` | озвучивание ответов |",
@@ -868,6 +869,7 @@
         pushSystem("Озвучивание: " + (cfg.tts ? "вкл" : "выкл"));
         return true;
       case "notes": global.Tools.openNotes(); return true;
+      case "graph": global.Tools.openGraph(); return true;
       case "tasks": global.Tools.openTasks(); return true;
       case "files": global.Tools.openFiles(); return true;
       case "persona": global.Persona.openWindow(); return true;

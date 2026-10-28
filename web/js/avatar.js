@@ -5,10 +5,12 @@
 (function (global) {
   "use strict";
 
-  var node, img, bubble, tag;
+  var node, img, blinkImg, bubble, tag;
   var pos = S.load("avatar.pos", { x: 0.80, y: 0.58 });
   var idleTimer = null;
   var bubbleTimer = null;
+  var blinkTimer = null;
+  var hideTimer = null;
 
   var IDLE_RU = [
     "Я рядом.",
@@ -33,7 +35,8 @@
 
   function build() {
     node = S.qs("#avatar");
-    img = S.qs("#avatar img");
+    img = S.qs("#avatar img.figure");
+    blinkImg = S.qs("#avatar img.blink");
     bubble = S.qs("#avatar .bubble");
     tag = S.qs("#avatar .tag");
 
@@ -93,10 +96,72 @@
 
     node.addEventListener("dblclick", function (e) { e.preventDefault(); });
 
-    window.addEventListener("resize", S.debounce(place, 120));
-    S.on("persona", function () { style(); place(); });
+    /* wheel over her changes the size */
+    node.addEventListener("wheel", function (e) {
+      if (!settings().wheelSize) return;
+      e.preventDefault();
+      var step = e.deltaY < 0 ? 8 : -8;
+      var next = S.clamp((settings().size || 190) + step, 90, 420);
+      if (global.Persona) Persona.set({ size: next });
+      style();
+      place();
+      say(Math.round(next) + " px", 900);
+    }, { passive: false });
 
+    window.addEventListener("resize", S.debounce(place, 120));
+    S.on("persona", function () { style(); place(); startBlink(); });
+
+    watchTyping();
     startIdle();
+    startBlink();
+  }
+
+  /* ------------------------------------------------------------- blinking */
+  function startBlink() {
+    clearTimeout(blinkTimer);
+    if (!blinkImg) return;
+    var p = settings();
+    if (!p.imageBlink || p.alive === false || p.hidden) {
+      blinkImg.removeAttribute("src");
+      node.classList.remove("blinking");
+      return;
+    }
+    blinkImg.src = p.imageBlink;
+    (function loop() {
+      blinkTimer = setTimeout(function () {
+        if (!document.hidden && !node.classList.contains("dragging")) {
+          node.classList.add("blinking");
+          setTimeout(function () { node.classList.remove("blinking"); }, 130);
+          /* now and then a double blink, the way people actually do it */
+          if (Math.random() < 0.3) {
+            setTimeout(function () {
+              node.classList.add("blinking");
+              setTimeout(function () { node.classList.remove("blinking"); }, 120);
+            }, 290);
+          }
+        }
+        loop();
+      }, 2600 + Math.random() * 4200);
+    })();
+  }
+
+  /* -------------------------------------------- fade out while you type */
+  function watchTyping() {
+    document.addEventListener("input", function (e) {
+      if (!settings().autoHide) return;
+      var tag = (e.target.tagName || "").toLowerCase();
+      if (tag !== "textarea" && tag !== "input") return;
+      node.classList.add("away");
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(function () { node.classList.remove("away"); }, 1400);
+    }, true);
+
+    document.addEventListener("pointerdown", function (e) {
+      if (!node.classList.contains("away")) return;
+      if (e.target.closest("textarea, input")) return;
+      clearTimeout(hideTimer);
+      node.classList.remove("away");
+    }, true);
   }
 
   function onClick(e) {
@@ -151,6 +216,15 @@
     node.style.width = (p.size || 190) + "px";
     node.style.opacity = ((p.opacity === undefined ? 100 : p.opacity) / 100);
     node.style.display = p.hidden ? "none" : "";
+
+    var alive = p.alive !== false;
+    node.classList.toggle("alive", alive);
+    var power = (p.aliveLevel === undefined ? 50 : p.aliveLevel) / 50;
+    node.style.setProperty("--swayY", (3 * power).toFixed(2) + "px");
+    node.style.setProperty("--swayR", (0.4 * power).toFixed(2) + "deg");
+    node.style.setProperty("--sway", (9 - 3.5 * power).toFixed(1) + "s");
+    if (!alive) node.classList.remove("blinking");
+
     if (img && p.image) img.src = p.image;
     if (tag) tag.textContent = p.name || "Sayumi";
     var aura = S.qs("#avatar .aura");
@@ -195,6 +269,7 @@
 
   global.Avatar = {
     init: build,
+    blink: startBlink,
     say: say,
     style: style,
     place: place,

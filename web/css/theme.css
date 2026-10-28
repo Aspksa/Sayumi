@@ -36,6 +36,10 @@
   --gap: 12px;
   --fs: 14px;
   --accent-alpha: 1;
+  --bw: 1px;
+  --sh: 0.7;
+  --swayY: 3px;
+  --swayR: 0.4deg;
   --glow: 0 0 22px rgba(var(--acc-rgb), 0.18);
   --speed: 180ms;
 

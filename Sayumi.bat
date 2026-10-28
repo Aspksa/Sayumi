@@ -34,6 +34,7 @@ set "OPT_DRIVE="
 set "OPT_PORT=8723"
 set "OPT_PYTHON="
 set "OPT_BROWSER=default"
+set "OPT_WINDOW=app"
 set "OPT_PORTABLE=auto"
 set "OPT_FIRSTRUN=1"
 set "PF86=%ProgramFiles(x86)%"
@@ -673,10 +674,11 @@ call :line
 echo.
 echo     1  !T_O_PORT! %OPT_PORT%
 echo     2  !T_O_BROWSER! %OPT_BROWSER%
-echo     3  !T_O_PORTMODE! %OPT_PORTABLE%
-echo     4  !T_O_OPENDATA!
-echo     5  !T_O_OPENLOG!
-echo     6  !T_O_RESET!
+echo     3  !T_O_WINDOW! %OPT_WINDOW%
+echo     4  !T_O_PORTMODE! %OPT_PORTABLE%
+echo     5  !T_O_OPENDATA!
+echo     6  !T_O_OPENLOG!
+echo     7  !T_O_RESET!
 echo     0  !T_BACK!
 echo.
 set "OC="
@@ -684,10 +686,11 @@ set /p "OC=  !T_SELECT! "
 if "%OC%"=="0" goto :menu
 if "%OC%"=="1" goto :opt_port
 if "%OC%"=="2" goto :opt_browser
-if "%OC%"=="3" goto :opt_portable
-if "%OC%"=="4" goto :opt_opendata
-if "%OC%"=="5" goto :opt_openlog
-if "%OC%"=="6" goto :opt_reset
+if "%OC%"=="3" goto :opt_window
+if "%OC%"=="4" goto :opt_portable
+if "%OC%"=="5" goto :opt_opendata
+if "%OC%"=="6" goto :opt_openlog
+if "%OC%"=="7" goto :opt_reset
 goto :menu_options
 
 :opt_port
@@ -709,6 +712,23 @@ if "%BC%"=="2" set "OPT_BROWSER=chrome"
 if "%BC%"=="3" set "OPT_BROWSER=msedge"
 if "%BC%"=="4" set "OPT_BROWSER=firefox"
 call :save_config
+goto :menu_options
+
+:opt_window
+if /i "%OPT_WINDOW%"=="app" (set "OPT_WINDOW=tab") else (set "OPT_WINDOW=app")
+call :save_config
+echo.
+if /i "%OPT_WINDOW%"=="app" (
+  call :find_browser
+  if defined APP_EXE (
+    call :ok "!T_O_WINDOW_APP!"
+  ) else (
+    call :warn "!T_O_WINDOW_NONE!"
+  )
+) else (
+  call :ok "!T_O_WINDOW_TAB!"
+)
+>nul ping -n 3 127.0.0.1
 goto :menu_options
 
 :opt_portable
@@ -810,6 +830,8 @@ if defined PY (echo   Python      : !PY_VER!  !PY!) else (echo   Python      : -
 if "%HAVE_PS%"=="1" (echo   PowerShell  : OK) else (echo   PowerShell  : -)
 where curl.exe >nul 2>&1 && (echo   curl        : OK) || (echo   curl        : -)
 where tar.exe  >nul 2>&1 && (echo   tar         : OK) || (echo   tar         : -)
+call :find_browser
+if defined APP_EXE (echo   App window  : !APP_EXE!) else (echo   App window  : -)
 if defined MEDIA_LABEL echo   Media       : !MEDIA_LABEL!
 echo   Port        : %OPT_PORT%
 netstat -ano 2>nul | find ":%OPT_PORT% " >nul && (echo   Port state  : BUSY) || (echo   Port state  : FREE)
@@ -925,11 +947,47 @@ goto :eof
 exit /b 0
 
 :open_url
+set "URL=%~1"
+if /i not "%OPT_WINDOW%"=="app" goto :ou_plain
+call :find_browser
+if not defined APP_EXE goto :ou_plain
+rem a local path has to become a file url before Chrome will take it
+echo %URL% | find "://" >nul
+if not errorlevel 1 goto :ou_app
+set "URL=%URL:\=/%"
+set "URL=file:///%URL%"
+:ou_app
+start "" "%APP_EXE%" --app="%URL%" --window-size=1280,880
+if not errorlevel 1 goto :eof
+:ou_plain
 if /i "%OPT_BROWSER%"=="default" goto :ou_default
 start "" "%OPT_BROWSER%" "%~1"
 if not errorlevel 1 goto :eof
 :ou_default
 start "" "%~1"
+goto :eof
+
+rem find a chromium based browser that understands --app
+:find_browser
+set "APP_EXE="
+if /i "%OPT_BROWSER%"=="chrome" call :try_browser "%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"
+if /i "%OPT_BROWSER%"=="chrome" call :try_browser "%ProgramFiles%\Google\Chrome\Application\chrome.exe"
+if /i "%OPT_BROWSER%"=="msedge" call :try_browser "%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"
+if /i "%OPT_BROWSER%"=="msedge" call :try_browser "%PF86%\Microsoft\Edge\Application\msedge.exe"
+if /i "%OPT_BROWSER%"=="firefox" goto :eof
+call :try_browser "%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"
+call :try_browser "%ProgramFiles%\Google\Chrome\Application\chrome.exe"
+call :try_browser "%PF86%\Google\Chrome\Application\chrome.exe"
+call :try_browser "%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"
+call :try_browser "%PF86%\Microsoft\Edge\Application\msedge.exe"
+call :try_browser "%LOCALAPPDATA%\Microsoft\Edge\Application\msedge.exe"
+call :try_browser "%ProgramFiles%\BraveSoftware\Brave-Browser\Application\brave.exe"
+call :try_browser "%LOCALAPPDATA%\Chromium\Application\chrome.exe"
+goto :eof
+
+:try_browser
+if defined APP_EXE goto :eof
+if exist "%~1" set "APP_EXE=%~1"
 goto :eof
 
 :load_config
@@ -944,6 +1002,7 @@ goto :eof
 >>"%CFG%" echo set "OPT_PORT=%OPT_PORT%"
 >>"%CFG%" echo set "OPT_PYTHON=%OPT_PYTHON%"
 >>"%CFG%" echo set "OPT_BROWSER=%OPT_BROWSER%"
+>>"%CFG%" echo set "OPT_WINDOW=%OPT_WINDOW%"
 >>"%CFG%" echo set "OPT_PORTABLE=%OPT_PORTABLE%"
 >>"%CFG%" echo set "OPT_FIRSTRUN=%OPT_FIRSTRUN%"
 goto :eof
@@ -1058,6 +1117,10 @@ set "T_O_TITLE=Настройки запуска"
 set "T_O_PORT=Порт сервера       :"
 set "T_O_BROWSER=Браузер            :"
 set "T_O_PORTMODE=Переносимый режим  :"
+set "T_O_WINDOW=Режим окна         :"
+set "T_O_WINDOW_APP=Окно приложения, без адресной строки и вкладок."
+set "T_O_WINDOW_TAB=Обычная вкладка браузера."
+set "T_O_WINDOW_NONE=Chrome или Edge не найдены, откроется обычная вкладка."
 set "T_O_OPENDATA=Открыть папку данных"
 set "T_O_OPENLOG=Открыть папку логов"
 set "T_O_RESET=Сбросить все настройки"
@@ -1158,6 +1221,10 @@ set "T_O_TITLE=Launch options"
 set "T_O_PORT=Server port       :"
 set "T_O_BROWSER=Browser           :"
 set "T_O_PORTMODE=Portable mode     :"
+set "T_O_WINDOW=Window mode      :"
+set "T_O_WINDOW_APP=Application window, no address bar and no tabs."
+set "T_O_WINDOW_TAB=Ordinary browser tab."
+set "T_O_WINDOW_NONE=Chrome or Edge not found, an ordinary tab will open."
 set "T_O_OPENDATA=Open the data folder"
 set "T_O_OPENLOG=Open the log folder"
 set "T_O_RESET=Reset all settings"

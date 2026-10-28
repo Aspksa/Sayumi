@@ -67,6 +67,7 @@
         { label: S.t("notes"), act: function () { Tools.openNotes(); } },
         { label: S.t("tasks"), act: function () { Tools.openTasks(); } },
         { label: S.t("files"), act: function () { Tools.openFiles(); } },
+        { label: "Граф заметок", act: function () { Tools.openGraph(); } },
         { sep: true },
         { label: S.t("persona"), act: function () { Persona.openWindow(); } },
         { label: S.t("settings"), act: function () { Settings.openWindow(); } }

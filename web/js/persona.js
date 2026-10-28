@@ -20,6 +20,11 @@
     voiceRate: 1,
     voicePitch: 1.05,
     image: "assets/sayumi.png",
+    imageBlink: "",
+    alive: true,
+    aliveLevel: 50,
+    autoHide: false,
+    wheelSize: true,
     size: 190,
     opacity: 100,
     aura: true,
@@ -279,6 +284,43 @@
     preview.appendChild(picks);
     sec.appendChild(preview);
 
+    var blinkRow = S.el("div", { class: "row" });
+    var blinkLab = S.el("div", { class: "lab" });
+    blinkLab.appendChild(document.createTextNode("Кадр с закрытыми глазами"));
+    blinkLab.appendChild(S.el("small", { text: data.imageBlink
+      ? "загружен, она будет моргать"
+      : "необязательно: второй кадр той же позы" }));
+    blinkRow.appendChild(blinkLab);
+    var blinkCtl = S.el("div", { class: "ctl" });
+    var blinkFile = S.el("input", { type: "file", accept: "image/*", class: "hide" });
+    var bBlink = S.el("button", { class: "btn sm", text: data.imageBlink ? "Заменить" : "Загрузить" });
+    bBlink.addEventListener("click", function () { blinkFile.click(); });
+    blinkFile.addEventListener("change", function () {
+      var f = blinkFile.files[0];
+      if (!f) return;
+      if (f.size > 3 * 1024 * 1024) { S.toast("Файл больше 3 МБ", "bad"); return; }
+      var reader = new FileReader();
+      reader.onload = function () {
+        set({ imageBlink: String(reader.result) });
+        if (global.Avatar) Avatar.blink();
+        redraw();
+      };
+      reader.readAsDataURL(f);
+    });
+    blinkCtl.appendChild(bBlink);
+    if (data.imageBlink) {
+      var bBlinkOff = S.el("button", { class: "btn sm ghost danger", text: "×" });
+      bBlinkOff.addEventListener("click", function () {
+        set({ imageBlink: "" });
+        if (global.Avatar) Avatar.blink();
+        redraw();
+      });
+      blinkCtl.appendChild(bBlinkOff);
+    }
+    blinkRow.appendChild(blinkCtl);
+    blinkRow.appendChild(blinkFile);
+    sec.appendChild(blinkRow);
+
     rowRange(sec, "Размер", data.size, 90, 420, 2, function (v) {
       set({ size: v });
       if (global.Avatar) { Avatar.style(); Avatar.place(); }
@@ -295,6 +337,22 @@
       set({ hidden: v });
       if (global.Avatar) Avatar.style();
     }, "Открыть чат можно кнопкой в шапке");
+
+    var secM = section(root, "Движение");
+    rowSwitch(secM, "Живая анимация", data.alive !== false, function (v) {
+      set({ alive: v });
+      if (global.Avatar) { Avatar.style(); Avatar.blink(); }
+    }, "Дыхание и лёгкое покачивание");
+    rowRange(secM, "Сила движения", data.aliveLevel, 10, 100, 5, function (v) {
+      set({ aliveLevel: v });
+      if (global.Avatar) Avatar.style();
+    }, " %");
+    rowSwitch(secM, "Уходить, пока вы печатаете", data.autoHide, function (v) {
+      set({ autoHide: v });
+    }, "Становится почти прозрачной и не мешает");
+    rowSwitch(secM, "Размер колесом мыши", data.wheelSize, function (v) {
+      set({ wheelSize: v });
+    }, "Прокрутка над ней меняет размер");
 
     var acts = S.el("div", { class: "inline" });
     var bCenter = S.el("button", { class: "btn", text: "По центру" });
