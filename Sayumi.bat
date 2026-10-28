@@ -35,6 +35,7 @@ set "OPT_PORT=8723"
 set "OPT_PYTHON="
 set "OPT_BROWSER=default"
 set "OPT_WINDOW=app"
+set "OPT_AUTOCLOSE=off"
 set "OPT_PORTABLE=auto"
 set "OPT_FIRSTRUN=1"
 set "PF86=%ProgramFiles(x86)%"
@@ -227,6 +228,18 @@ echo.
 call :line
 echo.
 if not defined AUTO goto :after_run_menu
+if /i "%OPT_AUTOCLOSE%"=="on" goto :after_run_timed
+echo   !T_AUTO_READY!
+echo   !T_AUTO_KEYS!
+echo.
+where choice >nul 2>&1
+if errorlevel 1 goto :after_run_menu
+choice /c MZ /n >nul 2>&1
+if errorlevel 2 goto :bye
+set "AUTO="
+goto :menu
+
+:after_run_timed
 echo   !T_AUTO_CLOSE!
 echo.
 where choice >nul 2>&1
@@ -675,10 +688,11 @@ echo.
 echo     1  !T_O_PORT! %OPT_PORT%
 echo     2  !T_O_BROWSER! %OPT_BROWSER%
 echo     3  !T_O_WINDOW! %OPT_WINDOW%
-echo     4  !T_O_PORTMODE! %OPT_PORTABLE%
-echo     5  !T_O_OPENDATA!
-echo     6  !T_O_OPENLOG!
-echo     7  !T_O_RESET!
+echo     4  !T_O_AUTOCLOSE! %OPT_AUTOCLOSE%
+echo     5  !T_O_PORTMODE! %OPT_PORTABLE%
+echo     6  !T_O_OPENDATA!
+echo     7  !T_O_OPENLOG!
+echo     8  !T_O_RESET!
 echo     0  !T_BACK!
 echo.
 set "OC="
@@ -687,10 +701,11 @@ if "%OC%"=="0" goto :menu
 if "%OC%"=="1" goto :opt_port
 if "%OC%"=="2" goto :opt_browser
 if "%OC%"=="3" goto :opt_window
-if "%OC%"=="4" goto :opt_portable
-if "%OC%"=="5" goto :opt_opendata
-if "%OC%"=="6" goto :opt_openlog
-if "%OC%"=="7" goto :opt_reset
+if "%OC%"=="4" goto :opt_autoclose
+if "%OC%"=="5" goto :opt_portable
+if "%OC%"=="6" goto :opt_opendata
+if "%OC%"=="7" goto :opt_openlog
+if "%OC%"=="8" goto :opt_reset
 goto :menu_options
 
 :opt_port
@@ -729,6 +744,11 @@ if /i "%OPT_WINDOW%"=="app" (
   call :ok "!T_O_WINDOW_TAB!"
 )
 >nul ping -n 3 127.0.0.1
+goto :menu_options
+
+:opt_autoclose
+if /i "%OPT_AUTOCLOSE%"=="on" (set "OPT_AUTOCLOSE=off") else (set "OPT_AUTOCLOSE=on")
+call :save_config
 goto :menu_options
 
 :opt_portable
@@ -947,22 +967,28 @@ goto :eof
 exit /b 0
 
 :open_url
+rem  start does NOT reset errorlevel, so a leftover 1 from the find below used
+rem  to fall through after a successful launch and open a second browser.
+rem  Nothing here reads errorlevel after start any more.
 set "URL=%~1"
 if /i not "%OPT_WINDOW%"=="app" goto :ou_plain
 call :find_browser
 if not defined APP_EXE goto :ou_plain
 rem a local path has to become a file url before Chrome will take it
 echo %URL% | find "://" >nul
-if not errorlevel 1 goto :ou_app
+if errorlevel 1 call :to_file_url
+start "" "%APP_EXE%" --app="%URL%" --window-size=1280,880
+goto :eof
+
+:to_file_url
 set "URL=%URL:\=/%"
 set "URL=file:///%URL%"
-:ou_app
-start "" "%APP_EXE%" --app="%URL%" --window-size=1280,880
-if not errorlevel 1 goto :eof
+goto :eof
+
 :ou_plain
 if /i "%OPT_BROWSER%"=="default" goto :ou_default
 start "" "%OPT_BROWSER%" "%~1"
-if not errorlevel 1 goto :eof
+goto :eof
 :ou_default
 start "" "%~1"
 goto :eof
@@ -1003,6 +1029,7 @@ goto :eof
 >>"%CFG%" echo set "OPT_PYTHON=%OPT_PYTHON%"
 >>"%CFG%" echo set "OPT_BROWSER=%OPT_BROWSER%"
 >>"%CFG%" echo set "OPT_WINDOW=%OPT_WINDOW%"
+>>"%CFG%" echo set "OPT_AUTOCLOSE=%OPT_AUTOCLOSE%"
 >>"%CFG%" echo set "OPT_PORTABLE=%OPT_PORTABLE%"
 >>"%CFG%" echo set "OPT_FIRSTRUN=%OPT_FIRSTRUN%"
 goto :eof
@@ -1058,6 +1085,9 @@ set "T_AUTO_HINT=Всё делается само. Нажмите M, чтобы 
 set "T_AUTO_NOPY=Python не найден, ставлю переносимую версию в папку проекта."
 set "T_AUTO_PYFAIL=Установить Python не вышло, открываю интерфейс без сервера."
 set "T_AUTO_CLOSE=Окно закроется само. Нажмите M, чтобы открыть меню."
+set "T_AUTO_READY=Sayumi работает в браузере. Это окно можно закрыть, она продолжит работать."
+set "T_AUTO_KEYS=Нажмите M для меню или Z, чтобы закрыть это окно."
+set "T_O_AUTOCLOSE=Закрывать это окно    :"
 set "T_RUN_ALREADY=Sayumi уже запущена, открываю:"
 set "T_RUN_PREP=Подготовка к запуску..."
 set "T_RUN_SERVER=Сервер:"
@@ -1162,6 +1192,9 @@ set "T_AUTO_HINT=Everything runs by itself. Press M to open the menu."
 set "T_AUTO_NOPY=Python not found, installing a portable copy into the project folder."
 set "T_AUTO_PYFAIL=Could not install Python, opening the interface without a server."
 set "T_AUTO_CLOSE=This window closes by itself. Press M to open the menu."
+set "T_AUTO_READY=Sayumi is running in the browser. You can close this window, it keeps working."
+set "T_AUTO_KEYS=Press M for the menu, or Z to close this window."
+set "T_O_AUTOCLOSE=Close this window     :"
 set "T_RUN_ALREADY=Sayumi is already running, opening:"
 set "T_RUN_PREP=Preparing to start..."
 set "T_RUN_SERVER=Server:"

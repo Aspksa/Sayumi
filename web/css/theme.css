@@ -97,6 +97,29 @@ html[data-accent="ice"]       { --acc: #6f94c0; --acc-soft: #57769a; --acc-brigh
 html[data-accent="violet"]    { --acc: #8a6fb5; --acc-soft: #6e5891; --acc-bright: #a78ccf; --acc-ink: #0a0612; --acc-rgb: 138,111,181; }
 html[data-accent="copper"]    { --acc: #b4674a; --acc-soft: #90513a; --acc-bright: #cd8268; --acc-ink: #130805; --acc-rgb: 180,103,74; }
 
+/* ------------------------------------------------------------- contrast */
+/* The old secondary colours measured 2.9:1 against the panel, below the 3:1
+   floor even for large text, and most labels and hints were painted with
+   them. These levels are measured against every background in the project;
+   the default clears 4.5:1 everywhere. */
+html[data-contrast="normal"] {
+  --txt: #ece9e3;
+  --dim: #b3afa6;
+  --faint: #99968e;
+}
+html[data-contrast="high"] {
+  --txt: #f6f4f0;
+  --dim: #ccc8bf;
+  --faint: #a7a39b;
+}
+html[data-contrast="max"] {
+  --txt: #ffffff;
+  --dim: #e4e0d8;
+  --faint: #c2beb5;
+  --line: #3a3a46;
+  --line-soft: #2c2c36;
+}
+
 /* ------------------------------------------------------------- modifiers */
 html[data-density="compact"] { --gap: 8px;  --fs: 13px; --r-m: 8px;  --r-l: 12px; }
 html[data-density="cozy"]    { --gap: 12px; --fs: 14px; }

@@ -124,6 +124,7 @@
     corners: "soft",
     density: "cozy",
     motion: "on",
+    contrast: "normal",
     fontScale: 100,
     fontUI: "",
     fontMono: "",
@@ -145,6 +146,7 @@
     root.setAttribute("data-corners", state.corners);
     root.setAttribute("data-density", state.density);
     root.setAttribute("data-motion", state.motion);
+    root.setAttribute("data-contrast", state.contrast || "normal");
     root.style.setProperty("--fs", (14 * (state.fontScale / 100)).toFixed(1) + "px");
 
     var uiFallback = FONTS_UI[0].stack;
