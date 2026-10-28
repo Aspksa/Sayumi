@@ -184,6 +184,13 @@
 
   function start() {
     document.documentElement.setAttribute("lang", S.getLang());
+
+    /* stored shapes are brought up to date before anything reads them */
+    var moved = Migrate.run();
+    if (moved.ran && !moved.fresh) {
+      S.toast("Данные обновлены до версии " + moved.version, "ok", 3600);
+    }
+
     bindTopBar();
     bindHotkeys();
     bindStage();

@@ -205,10 +205,17 @@
     var actions = S.el("div", { class: "inline" });
     var bReset = S.el("button", { class: "btn danger", text: "Сбросить личность" });
     bReset.addEventListener("click", function () {
-      if (!confirm("Сбросить все настройки Sayumi?")) return;
-      reset();
-      redraw();
-      if (global.Avatar) Avatar.style();
+      Dialog.confirm({
+        title: "Сбросить личность",
+        text: "Имя, характер, голос и внешний вид вернутся к исходным. " +
+              "Память и чаты не тронуты.",
+        ok: "Сбросить", danger: true
+      }).then(function (yes) {
+        if (!yes) return;
+        reset();
+        redraw();
+        if (global.Avatar) Avatar.style();
+      });
     });
     actions.appendChild(bReset);
     root.appendChild(actions);

@@ -123,11 +123,17 @@
     bClear.addEventListener("click", function () {
       var s = current();
       if (!s.messages.length) return;
-      if (!confirm(S.getLang() === "en" ? "Clear this conversation?" : "Очистить этот диалог?")) return;
-      s.messages = [];
-      s.updated = Date.now();
-      persist();
-      drawLog();
+      Dialog.confirm({
+        title: "Очистить диалог",
+        text: "Все сообщения этого чата будут удалены. Сам чат останется.",
+        ok: "Очистить", danger: true
+      }).then(function (yes) {
+        if (!yes) return;
+        s.messages = [];
+        s.updated = Date.now();
+        persist();
+        drawLog();
+      });
     });
     [bSide, title, chip, bFind, bTpl, bExport, bClear].forEach(function (n) { bar.appendChild(n); });
 
@@ -289,8 +295,11 @@
       });
       row.addEventListener("dblclick", function (e) {
         e.stopPropagation();
-        var name = prompt(S.t("rename"), s.title);
-        if (name) { s.title = name.slice(0, 80); persist(); drawSessions(); drawLog(); }
+        Dialog.prompt({ title: S.t("rename"), value: s.title }).then(function (name) {
+          if (!name) return;
+          s.title = name.slice(0, 80);
+          persist(); drawSessions(); drawLog();
+        });
       });
       row.addEventListener("contextmenu", function (e) {
         e.preventDefault();
@@ -298,8 +307,11 @@
         global.Menu.show(e.clientX, e.clientY, [
           { label: s.pinned ? "Открепить" : "Закрепить", act: function () { s.pinned = !s.pinned; persist(); drawSessions(); } },
           { label: S.t("rename"), act: function () {
-              var n = prompt(S.t("rename"), s.title);
-              if (n) { s.title = n.slice(0, 80); persist(); drawSessions(); drawLog(); }
+              Dialog.prompt({ title: S.t("rename"), value: s.title }).then(function (n) {
+                if (!n) return;
+                s.title = n.slice(0, 80);
+                persist(); drawSessions(); drawLog();
+              });
             } },
           { label: "Дублировать", act: function () {
               var copy = JSON.parse(JSON.stringify(s));
@@ -322,13 +334,21 @@
   }
 
   function removeSession(id) {
-    if (!confirm(S.getLang() === "en" ? "Delete this chat?" : "Удалить этот чат?")) return;
-    sessions = sessions.filter(function (s) { return s.id !== id; });
-    if (currentId === id) currentId = sessions.length ? sessions[0].id : "";
-    if (!sessions.length) newSession(false);
-    persist();
-    drawSessions();
-    drawLog();
+    var victim = sessions.filter(function (s) { return s.id === id; })[0];
+    Dialog.confirm({
+      title: "Удалить чат",
+      text: victim ? "«" + victim.title + "» и все его сообщения исчезнут навсегда."
+                   : "Чат исчезнет навсегда.",
+      ok: "Удалить", danger: true
+    }).then(function (yes) {
+      if (!yes) return;
+      sessions = sessions.filter(function (s) { return s.id !== id; });
+      if (currentId === id) currentId = sessions.length ? sessions[0].id : "";
+      if (!sessions.length) newSession(false);
+      persist();
+      drawSessions();
+      drawLog();
+    });
   }
 
   /* --------------------------------------------------------------- log */
@@ -1122,20 +1142,33 @@
       act: function () {
         var text = ui.input.value.trim();
         if (!text) { S.toast("Поле ввода пустое", "bad"); return; }
-        var name = prompt("Название шаблона:", text.slice(0, 24));
-        if (!name) return;
-        templates.push({ id: S.uid("t"), name: name, text: text });
-        S.save("chat.templates", templates);
-        S.toast("Шаблон сохранён", "ok");
+        Dialog.prompt({
+          title: "Новый шаблон",
+          text: "Под каким именем сохранить этот текст?",
+          value: text.slice(0, 24)
+        }).then(function (name) {
+          if (!name) return;
+          templates.push({ id: S.uid("t"), name: name, text: text });
+          S.save("chat.templates", templates);
+          S.toast("Шаблон сохранён", "ok");
+        });
       }
     });
     items.push({
       label: "Удалить шаблон...",
       act: function () {
-        var name = prompt("Название шаблона для удаления:");
-        if (!name) return;
-        templates = templates.filter(function (t) { return t.name !== name; });
-        S.save("chat.templates", templates);
+        if (!templates.length) { S.toast("Шаблонов нет", "bad"); return; }
+        Dialog.choose({
+          title: "Удалить шаблон",
+          options: templates.map(function (t) {
+            return { label: t.name, note: t.text.slice(0, 48), value: t.id, icon: "trash" };
+          })
+        }).then(function (id) {
+          if (!id) return;
+          templates = templates.filter(function (t) { return t.id !== id; });
+          S.save("chat.templates", templates);
+          S.toast("Шаблон удалён", "ok");
+        });
       }
     });
     var rect = ui.chip.getBoundingClientRect();

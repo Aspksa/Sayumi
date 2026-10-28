@@ -74,15 +74,118 @@
   var STOPSET = {};
   STOP.forEach(function (w) { STOPSET[w] = 1; });
 
-  /* crude but effective: fold a word to its first syllables so that
-     "проекта", "проектом", "проекты" all collapse to one key */
-  function stem(word) {
-    if (word.length <= 4) return word;
+  /* Porter stemmer for Russian (Snowball). A homemade "cut the ending off"
+     rule left "проекта", "проектом" and "проекты" as three different keys,
+     so recall missed the obvious. This folds them all to "проект". */
+  var VOWEL = /[аеиоуыэюя]/;
+
+  var PERFECTIVE_1 = /(в|вши|вшись)$/;
+  var PERFECTIVE_2 = /(ив|ивши|ившись|ыв|ывши|ывшись)$/;
+  var ADJECTIVE = /(ее|ие|ые|ое|ими|ыми|ей|ий|ый|ой|ем|им|ым|ом|его|ого|ему|ому|их|ых|ую|юю|ая|яя|ою|ею)$/;
+  var PARTICIPLE_1 = /(ем|нн|вш|ющ|щ)$/;
+  var PARTICIPLE_2 = /(ивш|ывш|ующ)$/;
+  var REFLEXIVE = /(ся|сь)$/;
+  var VERB_1 = /(ла|на|ете|йте|ли|й|л|ем|н|ло|но|ет|ют|ны|ть|ешь|нно)$/;
+  var VERB_2 = /(ила|ыла|ена|ейте|уйте|ите|или|ыли|ей|уй|ил|ыл|им|ым|ен|ит|ыт|ену|ует|уют|ены|ить|ыть|ишь|ую|ю)$/;
+  var NOUN = /(а|ев|ов|ие|ье|е|иями|ями|ами|еи|ии|и|ией|ей|ой|ий|й|иям|ям|ием|ем|ам|ом|о|у|ах|иях|ях|ы|ь|ию|ью|ю|ия|ья|я)$/;
+  var SUPERLATIVE = /(ейш|ейше)$/;
+  var DERIVATIONAL = /(ост|ость)$/;
+  var I_END = /и$/;
+  var SOFT_END = /ь$/;
+  var DOUBLE_N = /нн$/;
+
+  /* a suffix only counts when it sits inside the region it belongs to */
+  function cut(word, region, re) {
+    var tail = word.slice(region);
+    var m = tail.match(re);
+    if (!m) return null;
+    return word.slice(0, region + tail.length - m[0].length);
+  }
+
+  /* the same, but the suffix must follow а or я */
+  function cutAfterAYa(word, region, re) {
+    var tail = word.slice(region);
+    var m = tail.match(re);
+    if (!m) return null;
+    var before = tail.charAt(tail.length - m[0].length - 1);
+    if (before !== "а" && before !== "я") return null;
+    return word.slice(0, region + tail.length - m[0].length);
+  }
+
+  function regions(word) {
+    var rv = word.length, r1 = word.length, r2 = word.length, i;
+    for (i = 0; i < word.length; i++) {
+      if (VOWEL.test(word[i])) { rv = i + 1; break; }
+    }
+    for (i = 1; i < word.length; i++) {
+      if (!VOWEL.test(word[i]) && VOWEL.test(word[i - 1])) { r1 = i + 1; break; }
+    }
+    for (i = r1 + 1; i < word.length; i++) {
+      if (!VOWEL.test(word[i]) && VOWEL.test(word[i - 1])) { r2 = i + 1; break; }
+    }
+    return { rv: rv, r1: r1, r2: r2 };
+  }
+
+  function stemRu(word) {
+    word = word.replace(/ё/g, "е");
+    if (word.length < 4) return word;
+    var reg = regions(word);
+    var out;
+
+    /* step 1: gerund, or reflexive plus adjective / verb / noun */
+    out = cutAfterAYa(word, reg.rv, PERFECTIVE_1) || cut(word, reg.rv, PERFECTIVE_2);
+    if (!out) {
+      var base = cut(word, reg.rv, REFLEXIVE) || word;
+      var adj = cutAfterAYa(base, reg.rv, ADJECTIVE) || cut(base, reg.rv, ADJECTIVE);
+      if (adj !== null && adj !== undefined && adj !== base) {
+        out = cutAfterAYa(adj, reg.rv, PARTICIPLE_1) || cut(adj, reg.rv, PARTICIPLE_2) || adj;
+      } else {
+        out = cutAfterAYa(base, reg.rv, VERB_1) || cut(base, reg.rv, VERB_2) ||
+              cut(base, reg.rv, NOUN) || base;
+      }
+    }
+
+    /* step 2: a trailing и in RV goes */
+    var trimmed = cut(out, reg.rv, I_END);
+    if (trimmed) out = trimmed;
+
+    /* step 3: derivational suffix inside R2 */
+    var derived = cut(out, reg.r2, DERIVATIONAL);
+    if (derived) out = derived;
+
+    /* step 4: нн -> н, superlative, soft sign */
+    if (DOUBLE_N.test(out)) {
+      out = out.slice(0, -1);
+    } else {
+      var sup = cut(out, reg.rv, SUPERLATIVE);
+      if (sup) {
+        out = sup;
+        if (DOUBLE_N.test(out)) out = out.slice(0, -1);
+      } else {
+        var soft = cut(out, reg.rv, SOFT_END);
+        if (soft) out = soft;
+      }
+    }
+    return out || word;
+  }
+
+  function stemEn(word) {
+    if (word.length < 5) return word;
     var w = word
-      .replace(/(ость|ения|ение|ениям|ами|ями|ого|ему|ых|ие|ые|ую|ой|ей|ом|ам|ов|ах|ях|ть|ся)$/u, "")
-      .replace(/(ing|edly|ness|ment|tion|ies|ed|es|s)$/u, "");
-    if (w.length < 3) w = word;
-    return w.slice(0, 7);
+      .replace(/(ational|ization|iveness|fulness|ousness)$/, "")
+      .replace(/(ements|ations|ingly|edly)$/, "")
+      .replace(/(ement|ation)$/, "");
+    /* plural first, so "settings" and "setting" land on the same root */
+    if (/(sses|ies)$/.test(w)) w = w.slice(0, -2);
+    else if (/[^s]s$/.test(w)) w = w.slice(0, -1);
+    w = w.replace(/(ing|ness|ment|ism|ist|ed|ly)$/, "");
+    return w.length >= 3 ? w : word;
+  }
+
+  function stem(word) {
+    if (!word) return word;
+    if (/^[a-z0-9_]+$/.test(word)) return stemEn(word);
+    return stemRu(word);
   }
 
   function tokens(text) {
@@ -92,7 +195,15 @@
     for (var i = 0; i < words.length; i++) {
       var w = words[i];
       if (!w || w.length < 3 || STOPSET[w]) continue;
-      out.push(stem(w));
+      var root = stem(w);
+      out.push(root);
+      /* The algorithm is heuristic: "память" looks like a verb and folds to
+         "памя" while "памяти" folds to "памят". A shared prefix key bridges
+         those near misses; both sides of a search get it, so it stays fair. */
+      if (w.length >= 6 && /[а-я]/.test(w)) {
+        var prefix = w.slice(0, 5);
+        if (prefix !== root) out.push(prefix);
+      }
     }
     return out;
   }
@@ -627,8 +738,12 @@
     });
     text.appendChild(meta);
     text.addEventListener("dblclick", function () {
-      var next = prompt("Изменить запись:", fact.text);
-      if (next && next.trim()) { update(fact.id, { text: next.trim() }); redraw(); }
+      Dialog.prompt({ title: "Изменить запись", value: fact.text, multiline: true, rows: 3 })
+        .then(function (next) {
+          if (!next || !next.trim()) return;
+          update(fact.id, { text: next.trim() });
+          redraw();
+        });
     });
 
     var del = I.btn("trash", { class: "btn sm ghost danger", title: "Забыть" });
@@ -673,10 +788,16 @@
     }
     find.addEventListener("input", S.debounce(paint, 140));
     addBtn.addEventListener("click", function () {
-      var text = prompt("Что запомнить?");
-      if (!text) return;
-      add(text, { kind: "fact", weight: 2, pinned: true, src: "ручное" });
-      redraw();
+      Dialog.prompt({
+        title: "Записать в память",
+        text: "Короткий факт, который она должна помнить всегда.",
+        placeholder: "например: проект на Python, отвечать кратко",
+        multiline: true, rows: 3
+      }).then(function (text) {
+        if (!text) return;
+        add(text, { kind: "fact", weight: 2, pinned: true, src: "ручное" });
+        redraw();
+      });
     });
     paint();
 
@@ -708,9 +829,16 @@
     });
     var bWipe = S.el("button", { class: "btn danger", text: "Стереть всё" });
     bWipe.addEventListener("click", function () {
-      if (!confirm("Стереть всю память и опыт? Это нельзя отменить.")) return;
-      global.Memory.wipe();
-      redraw();
+      Dialog.confirm({
+        title: "Стереть память",
+        text: "Все записи, портрет собеседника и накопленный опыт исчезнут. " +
+              "Выгрузите копию, если она может пригодиться.",
+        ok: "Стереть всё", danger: true
+      }).then(function (yes) {
+        if (!yes) return;
+        global.Memory.wipe();
+        redraw();
+      });
     });
     row.appendChild(bOut);
     row.appendChild(bIn);

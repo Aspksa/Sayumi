@@ -185,15 +185,25 @@
 
     function gotoNote(name) {
       var found = byTitle(name);
-      if (!found) {
-        if (!confirm('Заметки «' + name + '» ещё нет. Создать?')) return;
-        found = { id: S.uid("n"), title: name, text: "", updated: Date.now() };
-        notes.unshift(found);
-        saveNotes();
+      if (found) {
+        activeId = found.id;
+        drawList();
+        load();
+        return;
       }
-      activeId = found.id;
-      drawList();
-      load();
+      Dialog.confirm({
+        title: "Заметки ещё нет",
+        text: "«" + name + "» пока не существует. Создать её сейчас?",
+        ok: "Создать", icon: "plus"
+      }).then(function (yes) {
+        if (!yes) return;
+        var fresh = { id: S.uid("n"), title: name, text: "", updated: Date.now() };
+        notes.unshift(fresh);
+        saveNotes();
+        activeId = fresh.id;
+        drawList();
+        load();
+      });
     }
 
     preview.addEventListener("click", function (e) {
@@ -268,13 +278,20 @@
       S.download((n.title || "note") + ".md", n.text, "text/markdown");
     });
     bDel.addEventListener("click", function () {
-      if (!active()) return;
-      if (!confirm("Удалить заметку?")) return;
-      notes = notes.filter(function (n) { return n.id !== activeId; });
-      activeId = notes.length ? notes[0].id : null;
-      saveNotes();
-      drawList();
-      load();
+      var victim = active();
+      if (!victim) return;
+      Dialog.confirm({
+        title: "Удалить заметку",
+        text: "«" + (victim.title || "Без названия") + "» исчезнет вместе со связями.",
+        ok: "Удалить", danger: true
+      }).then(function (yes) {
+        if (!yes) return;
+        notes = notes.filter(function (n) { return n.id !== victim.id; });
+        activeId = notes.length ? notes[0].id : null;
+        saveNotes();
+        drawList();
+        load();
+      });
     });
 
     if (!notes.length) bNew.click();
@@ -692,8 +709,12 @@
         });
         var text = S.el("span", { class: "grow", text: t.text });
         text.addEventListener("dblclick", function () {
-          var v = prompt("Задача:", t.text);
-          if (v) { t.text = v; saveTasks(); draw(); }
+          Dialog.prompt({ title: "Изменить задачу", value: t.text }).then(function (v) {
+            if (!v) return;
+            t.text = v;
+            saveTasks();
+            draw();
+          });
         });
         var toChat = I.btn("arrowRight", { title: "Обсудить в чате" });
         toChat.addEventListener("click", function () {
@@ -843,13 +864,18 @@
     });
     bRefresh.addEventListener("click", draw);
     bNew.addEventListener("click", function () {
-      var name = prompt("Имя файла:", "notes.md");
-      if (!name) return;
-      S.api("/api/file", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: (dir ? dir + "/" : "") + name, text: "" })
-      }).then(draw);
+      Dialog.prompt({
+        title: "Новый файл",
+        text: "Он появится в рабочей папке" + (dir ? ", в " + dir : "") + ".",
+        value: "notes.md"
+      }).then(function (name) {
+        if (!name) return;
+        S.api("/api/file", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: (dir ? dir + "/" : "") + name, text: "" })
+        }).then(draw);
+      });
     });
 
     draw();

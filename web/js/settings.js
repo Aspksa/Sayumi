@@ -690,9 +690,15 @@
     bOpen.addEventListener("click", function () { Memory.openWindow(); });
     var bWipe = S.el("button", { class: "btn danger", text: "Стереть память" });
     bWipe.addEventListener("click", function () {
-      if (!confirm("Стереть всю память и накопленный опыт?")) return;
-      Memory.wipe();
-      redraw();
+      Dialog.confirm({
+        title: "Стереть память",
+        text: "Все записи и накопленный опыт исчезнут безвозвратно.",
+        ok: "Стереть", danger: true
+      }).then(function (yes) {
+        if (!yes) return;
+        Memory.wipe();
+        redraw();
+      });
     });
     acts.appendChild(bOpen);
     acts.appendChild(bWipe);
@@ -789,16 +795,35 @@
     var danger = S.el("div", { class: "inline", style: "margin-top:12px" });
     var bChats = S.el("button", { class: "btn danger", text: "Удалить все чаты" });
     bChats.addEventListener("click", function () {
-      if (!confirm("Удалить все диалоги безвозвратно?")) return;
-      Chat.clearAll();
-      S.toast("Чаты удалены");
+      Dialog.confirm({
+        title: "Удалить все чаты",
+        text: "Каждый диалог и его история исчезнут. Память и заметки останутся.",
+        ok: "Удалить всё", danger: true
+      }).then(function (yes) {
+        if (!yes) return;
+        Chat.clearAll();
+        S.toast("Чаты удалены");
+      });
     });
     var bAll = S.el("button", { class: "btn danger", text: "Полный сброс" });
     bAll.addEventListener("click", function () {
-      if (!confirm("Удалить все данные Sayumi из этого браузера?")) return;
-      if (!confirm("Точно? Это действие нельзя отменить.")) return;
-      S.allKeys().forEach(S.drop);
-      setTimeout(function () { location.reload(); }, 400);
+      Dialog.confirm({
+        title: "Полный сброс",
+        text: "Чаты, заметки, задачи, память, настройки и ключ API — всё будет стёрто. " +
+              "Отменить это нельзя.",
+        ok: "Стереть всё", danger: true
+      }).then(function (yes) {
+        if (!yes) return;
+        return Dialog.confirm({
+          title: "Точно стереть?",
+          text: "Последняя возможность передумать. Копию можно выгрузить кнопкой выше.",
+          ok: "Да, стереть", danger: true
+        });
+      }).then(function (sure) {
+        if (!sure) return;
+        S.allKeys().forEach(S.drop);
+        setTimeout(function () { location.reload(); }, 400);
+      });
     });
     danger.appendChild(bChats);
     danger.appendChild(bAll);

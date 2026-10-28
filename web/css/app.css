@@ -1153,6 +1153,85 @@ input[type="range"]::-moz-range-thumb {
   text-transform: uppercase;
 }
 
+/* -------------------------------------------------------------- modals --- */
+.modal-back {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, .62);
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+.modal-back.show { opacity: 1; }
+
+.modal {
+  width: min(460px, 100%);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-l);
+  background: var(--bg-1);
+  box-shadow: var(--shadow-win), var(--glow);
+  transform: translateY(12px) scale(.97);
+  opacity: 0;
+  transition: transform 180ms cubic-bezier(.2, .9, .3, 1), opacity 180ms ease;
+}
+.modal-back.show .modal { transform: none; opacity: 1; }
+.modal.danger { border-color: rgba(168, 84, 80, .5); }
+
+.modal > header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: var(--bw) solid var(--line-soft);
+}
+.modal > header .ic { width: 16px; height: 16px; color: var(--acc); }
+.modal.danger > header .ic { color: var(--bad); }
+.modal > header h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--acc);
+}
+.modal.danger > header h3 { color: var(--bad); }
+
+.modal-body { padding: 16px 20px; overflow-y: auto; }
+.modal-text { margin: 0 0 12px; color: var(--txt); line-height: 1.55; }
+.modal-text:last-child { margin-bottom: 0; }
+.modal-body input[type="text"], .modal-body textarea { width: 100%; }
+
+.modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px 16px;
+}
+
+.modal-opt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px;
+  border: var(--bw) solid var(--line-soft);
+  border-radius: var(--r-s);
+  background: var(--bg-2);
+  color: var(--txt);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--speed), background var(--speed);
+}
+.modal-opt:hover { border-color: rgba(var(--acc-rgb), .5); background: var(--bg-3); }
+.modal-opt .ic { color: var(--acc); }
+.modal-opt small { display: block; color: var(--faint); font-size: 11px; }
+
 /* -------------------------------------------------------------- toasts --- */
 #toasts {
   position: fixed;
