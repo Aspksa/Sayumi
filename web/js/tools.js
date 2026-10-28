@@ -65,7 +65,7 @@
     var root = S.el("div", { class: "chat" });
     var side = S.el("div", { class: "chat-side" });
     var top = S.el("div", { class: "side-top" });
-    var bNew = S.el("button", { class: "btn sm primary", text: "+ Заметка" });
+    var bNew = I.btn("plus", { class: "btn sm primary", label: "Заметка" });
     top.appendChild(bNew);
     var searchWrap = S.el("div", { class: "side-top" });
     var search = S.el("input", { class: "search", placeholder: "Поиск..." });
@@ -78,12 +78,12 @@
     var main = S.el("div", { class: "chat-main" });
     var bar = S.el("div", { class: "chat-bar" });
     var titleIn = S.el("input", { class: "search", placeholder: "Заголовок заметки" });
-    var bPreview = S.el("button", { class: "btn sm ghost", text: "👁 Вид" });
-    var bLink = S.el("button", { class: "btn sm ghost", title: "Вставить ссылку на заметку", text: "[[ ]]" });
-    var bGraph = S.el("button", { class: "btn sm ghost", title: "Граф связей", text: "✦" });
-    var bCopy = S.el("button", { class: "btn sm ghost", text: "⧉" });
-    var bDown = S.el("button", { class: "btn sm ghost", text: "⤓" });
-    var bDel = S.el("button", { class: "btn sm ghost danger", text: "×" });
+    var bPreview = I.btn("eye", { title: "Предпросмотр" });
+    var bLink = I.btn("brackets", { title: "Вставить ссылку на заметку" });
+    var bGraph = I.btn("graph", { title: "Граф связей" });
+    var bCopy = I.btn("copy", { title: "Копировать" });
+    var bDown = I.btn("download", { title: "Выгрузить в .md" });
+    var bDel = I.btn("trash", { class: "btn sm ghost danger", title: "Удалить заметку" });
     [titleIn, bLink, bGraph, bPreview, bCopy, bDown, bDel].forEach(function (n) { bar.appendChild(n); });
 
     var editor = S.el("textarea", {
@@ -290,38 +290,61 @@
   }
 
   /* -------------------------------------------------------------- graph */
-  /* notes as nodes, [[links]] as edges, laid out by repulsion and springs */
+  /* notes as nodes, [[links]] as curved edges, laid out by repulsion and
+     springs. Edges carry drifting sparks so the direction of a link reads
+     at a glance; hovering a node dims everything that is not its neighbour. */
   function openGraph() {
     if (Win.get("graph")) { Win.get("graph").focus(); return; }
 
     var pane = S.el("div", { class: "pane" });
     var bar = S.el("div", { class: "chat-bar" });
     var info = S.el("div", { class: "title tiny" });
-    var bRelax = S.el("button", { class: "btn sm ghost", title: "Разложить заново", text: "⟳" });
-    var bFit = S.el("button", { class: "btn sm ghost", title: "Вписать в окно", text: "⤢" });
+    var bRelax = I.btn("refresh", { title: "Разложить заново" });
+    var bFit = I.btn("expand", { title: "Вписать в окно" });
     bar.appendChild(info);
     bar.appendChild(bRelax);
     bar.appendChild(bFit);
 
-    var holder = S.el("div", { style: "flex:1;min-height:0;position:relative;background:var(--bg-0)" });
+    var holder = S.el("div", {
+      style: "flex:1;min-height:0;position:relative;background:" +
+             "radial-gradient(ellipse at 50% 42%, rgba(var(--acc-rgb),.05), transparent 62%), var(--bg-0)"
+    });
     var canvas = S.el("canvas", { style: "position:absolute;inset:0;width:100%;height:100%;cursor:grab" });
     holder.appendChild(canvas);
     pane.appendChild(bar);
     pane.appendChild(holder);
 
     var ctx = canvas.getContext("2d");
-    var nodes = [], edges = [], frames = 0, raf = null;
-    var drag = null, hover = null;
+    var nodes = [], edges = [], sparks = [];
+    var frames = 0, raf = null, born = 0;
+    var drag = null, hover = null, near = null;
+    var palette = { acc: "#c9a227", accRgb: "201,162,39", dim: "#5d5b57", txt: "#8e8b85", font: "sans-serif" };
+
+    function readPalette() {
+      var cs = getComputedStyle(document.documentElement);
+      function v(name, fallback) {
+        var out = cs.getPropertyValue(name).trim();
+        return out || fallback;
+      }
+      palette.acc = v("--acc", "#c9a227");
+      palette.accRgb = v("--acc-rgb", "201,162,39");
+      palette.dim = v("--faint", "#5d5b57");
+      palette.txt = v("--dim", "#8e8b85");
+      palette.font = v("--font-ui", "sans-serif");
+    }
 
     function build() {
+      readPalette();
       nodes = notes.map(function (n, i) {
         var angle = (i / Math.max(1, notes.length)) * Math.PI * 2;
         return {
           id: n.id,
           title: n.title || "Без названия",
-          x: Math.cos(angle) * 160 + (Math.random() - 0.5) * 30,
-          y: Math.sin(angle) * 160 + (Math.random() - 0.5) * 30,
-          vx: 0, vy: 0, deg: 0
+          updated: n.updated || 0,
+          x: Math.cos(angle) * 170 + (Math.random() - 0.5) * 40,
+          y: Math.sin(angle) * 170 + (Math.random() - 0.5) * 40,
+          vx: 0, vy: 0, deg: 0,
+          links: []
         };
       });
       var index = {};
@@ -335,27 +358,40 @@
           var to = index[name.trim().toLowerCase()];
           if (!to || to === from) return;
           edges.push({ a: from, b: to });
-          from.deg++;
-          to.deg++;
+          from.deg++; to.deg++;
+          from.links.push(to);
+          to.links.push(from);
         });
       });
+
+      /* one drifting spark per edge, a second one on busy edges */
+      sparks = [];
+      edges.forEach(function (e, i) {
+        sparks.push({ e: e, t: Math.random(), speed: 0.0022 + Math.random() * 0.0016 });
+        if (i % 3 === 0) sparks.push({ e: e, t: Math.random(), speed: 0.0018 + Math.random() * 0.0014 });
+      });
+
       info.textContent = "заметок " + nodes.length + " · связей " + edges.length;
       frames = 0;
+      centre.x = 0;
+      centre.y = 0;
+      born = performance.now();
       run();
     }
 
+    /* ------------------------------------------------------------ physics */
     function step() {
-      var k = 0.0016;
+      var pull = 0.0016;
       for (var i = 0; i < nodes.length; i++) {
         var a = nodes[i];
-        a.vx -= a.x * k;            /* pull gently toward the centre */
-        a.vy -= a.y * k;
+        a.vx -= a.x * pull;
+        a.vy -= a.y * pull;
         for (var j = i + 1; j < nodes.length; j++) {
           var b = nodes[j];
           var dx = b.x - a.x, dy = b.y - a.y;
           var d2 = dx * dx + dy * dy || 0.01;
           var d = Math.sqrt(d2);
-          var push = 2600 / d2;
+          var push = 2800 / d2;
           var ux = dx / d, uy = dy / d;
           a.vx -= ux * push; a.vy -= uy * push;
           b.vx += ux * push; b.vy += uy * push;
@@ -364,7 +400,7 @@
       edges.forEach(function (e) {
         var dx = e.b.x - e.a.x, dy = e.b.y - e.a.y;
         var d = Math.sqrt(dx * dx + dy * dy) || 0.01;
-        var force = (d - 110) * 0.012;
+        var force = (d - 118) * 0.012;
         var ux = dx / d, uy = dy / d;
         e.a.vx += ux * force; e.a.vy += uy * force;
         e.b.vx -= ux * force; e.b.vy -= uy * force;
@@ -376,11 +412,52 @@
       });
     }
 
-    function css(name) {
-      return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    /* ------------------------------------------------------------ drawing */
+    /* a link is drawn as a quadratic curve bowed away from the straight line */
+    function control(e) {
+      var mx = (e.a.x + e.b.x) / 2, my = (e.a.y + e.b.y) / 2;
+      var dx = e.b.x - e.a.x, dy = e.b.y - e.a.y;
+      var len = Math.sqrt(dx * dx + dy * dy) || 1;
+      var bow = Math.min(34, len * 0.17);
+      return { x: mx - (dy / len) * bow, y: my + (dx / len) * bow };
     }
 
-    function paint() {
+    function pointOn(e, t) {
+      var c = control(e);
+      var inv = 1 - t;
+      return {
+        x: inv * inv * e.a.x + 2 * inv * t * c.x + t * t * e.b.x,
+        y: inv * inv * e.a.y + 2 * inv * t * c.y + t * t * e.b.y
+      };
+    }
+
+    function radius(n) {
+      return 5 + Math.min(8, n.deg * 1.7);
+    }
+
+    /* fresh notes glow a little warmer than stale ones */
+    function freshness(n) {
+      if (!n.updated) return 0;
+      var days = (Date.now() - n.updated) / 86400000;
+      return S.clamp(1 - days / 21, 0, 1);
+    }
+
+    function faded(n) {
+      if (!near) return 1;
+      return near.has(n) ? 1 : 0.14;
+    }
+
+    /* the drawing origin follows the centre of mass, smoothed */
+    var centre = { x: 0, y: 0 };
+    function recentre() {
+      if (!nodes.length) return;
+      var sx = 0, sy = 0;
+      nodes.forEach(function (n) { sx += n.x; sy += n.y; });
+      centre.x += (sx / nodes.length - centre.x) * 0.08;
+      centre.y += (sy / nodes.length - centre.y) * 0.08;
+    }
+
+    function paint(now) {
       var ratio = window.devicePixelRatio || 1;
       var w = holder.clientWidth, h = holder.clientHeight;
       if (canvas.width !== w * ratio || canvas.height !== h * ratio) {
@@ -392,61 +469,136 @@
       ctx.save();
       ctx.translate(w / 2, h / 2);
 
-      var accent = css("--acc") || "#c9a227";
-      var dim = css("--faint") || "#5d5b57";
+      /* nodes fly out from the centre when the window opens */
+      var grow = S.clamp((now - born) / 620, 0, 1);
+      var ease = 1 - Math.pow(1 - grow, 3);
+      ctx.scale(0.35 + 0.65 * ease, 0.35 + 0.65 * ease);
+      ctx.translate(-centre.x, -centre.y);
+      ctx.globalAlpha = ease;
 
-      ctx.strokeStyle = dim;
-      ctx.globalAlpha = 0.45;
-      ctx.lineWidth = 1;
+      /* ---- curves */
+      ctx.lineCap = "round";
       edges.forEach(function (e) {
+        var alpha = Math.min(faded(e.a), faded(e.b));
+        var lit = near && near.has(e.a) && near.has(e.b);
+        var c = control(e);
         ctx.beginPath();
         ctx.moveTo(e.a.x, e.a.y);
-        ctx.lineTo(e.b.x, e.b.y);
+        ctx.quadraticCurveTo(c.x, c.y, e.b.x, e.b.y);
+        ctx.strokeStyle = lit ? palette.acc : palette.dim;
+        ctx.globalAlpha = ease * alpha * (lit ? 0.75 : 0.4);
+        ctx.lineWidth = lit ? 1.6 : 1;
         ctx.stroke();
       });
-      ctx.globalAlpha = 1;
 
+      /* ---- sparks riding the curves */
+      sparks.forEach(function (sp) {
+        var alpha = Math.min(faded(sp.e.a), faded(sp.e.b));
+        if (alpha < 0.3) return;
+        var pt = pointOn(sp.e, sp.t);
+        var tail = pointOn(sp.e, Math.max(0, sp.t - 0.07));
+        var grad = ctx.createLinearGradient(tail.x, tail.y, pt.x, pt.y);
+        grad.addColorStop(0, "rgba(" + palette.accRgb + ",0)");
+        grad.addColorStop(1, "rgba(" + palette.accRgb + ",.85)");
+        ctx.beginPath();
+        ctx.moveTo(tail.x, tail.y);
+        ctx.lineTo(pt.x, pt.y);
+        ctx.strokeStyle = grad;
+        ctx.globalAlpha = ease * alpha;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      });
+
+      /* ---- nodes with a soft drop shadow for depth */
       nodes.forEach(function (n) {
-        var r = 5 + Math.min(7, n.deg * 1.6);
+        var r = radius(n);
         var on = n === hover || n === drag;
+        var alpha = faded(n);
+        ctx.globalAlpha = ease * alpha;
+
+        ctx.beginPath();
+        ctx.ellipse(n.x + 1.5, n.y + r * 0.95, r * 0.95, r * 0.34, 0, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(0,0,0,.55)";
+        ctx.filter = "blur(2px)";
+        ctx.fill();
+        ctx.filter = "none";
+
+        if (n.deg) {
+          ctx.shadowColor = "rgba(" + palette.accRgb + ",.55)";
+          ctx.shadowBlur = on ? 20 : 11;
+        }
         ctx.beginPath();
         ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
-        ctx.fillStyle = n.deg ? accent : dim;
-        ctx.globalAlpha = on ? 1 : 0.85;
+        var warm = freshness(n);
+        ctx.fillStyle = n.deg
+          ? "rgba(" + palette.accRgb + "," + (0.55 + warm * 0.45).toFixed(2) + ")"
+          : palette.dim;
         ctx.fill();
+        ctx.shadowBlur = 0;
+
         if (on) {
-          ctx.lineWidth = 2;
-          ctx.strokeStyle = accent;
+          ctx.beginPath();
+          ctx.arc(n.x, n.y, r + 4, 0, Math.PI * 2);
+          ctx.strokeStyle = palette.acc;
+          ctx.lineWidth = 1.6;
           ctx.stroke();
         }
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = on ? accent : (css("--dim") || "#8e8b85");
-        ctx.font = (on ? "600 " : "") + "11px " + (css("--font-ui") || "sans-serif");
-        ctx.textAlign = "center";
-        ctx.fillText(n.title.slice(0, 22), n.x, n.y + r + 13);
       });
+
+      /* ---- labels: hubs always, the rest only when pointed at */
+      var crowded = nodes.length > 14;
+      nodes.forEach(function (n) {
+        var on = n === hover || n === drag;
+        var neighbour = near && near.has(n);
+        if (crowded && !on && !neighbour && n.deg < 2) return;
+        var r = radius(n);
+        ctx.globalAlpha = ease * faded(n) * (on || neighbour ? 1 : 0.75);
+        ctx.fillStyle = on ? palette.acc : palette.txt;
+        ctx.font = (on ? "600 " : "") + "11px " + palette.font;
+        ctx.textAlign = "center";
+        ctx.fillText(n.title.slice(0, 24), n.x, n.y + r + 14);
+      });
+
       ctx.restore();
+      ctx.globalAlpha = 1;
     }
 
     function run() {
       cancelAnimationFrame(raf);
-      (function loop() {
+      (function loop(now) {
+        now = now || performance.now();
         if (frames < 420 || drag) { step(); frames++; }
-        paint();
+        recentre();
+        sparks.forEach(function (sp) {
+          sp.t += sp.speed;
+          if (sp.t > 1) sp.t -= 1;
+        });
+        paint(now);
         raf = requestAnimationFrame(loop);
       })();
     }
 
+    /* ------------------------------------------------------------- input */
     function at(e) {
       var rect = canvas.getBoundingClientRect();
-      var x = e.clientX - rect.left - rect.width / 2;
-      var y = e.clientY - rect.top - rect.height / 2;
-      var best = null, bestD = 18;
+      var grow = S.clamp((performance.now() - born) / 620, 0, 1);
+      var ease = 1 - Math.pow(1 - grow, 3);
+      var zoom = 0.35 + 0.65 * ease;
+      var x = (e.clientX - rect.left - rect.width / 2) / zoom + centre.x;
+      var y = (e.clientY - rect.top - rect.height / 2) / zoom + centre.y;
+      var best = null, bestD = 20;
       nodes.forEach(function (n) {
         var d = Math.hypot(n.x - x, n.y - y);
         if (d < bestD) { bestD = d; best = n; }
       });
       return { x: x, y: y, node: best };
+    }
+
+    function setHover(node) {
+      hover = node;
+      if (!node) { near = null; return; }
+      near = new Set([node]);
+      node.links.forEach(function (n) { near.add(n); });
     }
 
     canvas.addEventListener("pointerdown", function (e) {
@@ -459,9 +611,10 @@
     canvas.addEventListener("pointermove", function (e) {
       var hit = at(e);
       if (drag) { drag.x = hit.x; drag.y = hit.y; return; }
-      hover = hit.node;
+      setHover(hit.node);
       canvas.style.cursor = hover ? "pointer" : "grab";
     });
+    canvas.addEventListener("pointerleave", function () { setHover(null); });
     canvas.addEventListener("pointerup", function (e) {
       try { canvas.releasePointerCapture(e.pointerId); } catch (err) {}
       drag = null;
@@ -478,15 +631,15 @@
 
     bRelax.addEventListener("click", build);
     bFit.addEventListener("click", function () {
-      var scale = 0.82;
-      nodes.forEach(function (n) { n.x *= scale; n.y *= scale; });
+      nodes.forEach(function (n) { n.x *= 0.82; n.y *= 0.82; });
     });
+    S.on("theme", readPalette);
 
     build();
     Win.create({
       id: "graph",
       title: "Граф заметок",
-      width: 720, height: 540,
+      width: 760, height: 560,
       content: pane,
       onClose: function () { cancelAnimationFrame(raf); }
     });
@@ -503,7 +656,7 @@
     [["all", "Все"], ["open", "Активные"], ["done", "Готовые"]].forEach(function (o) {
       sel.appendChild(S.el("option", { value: o[0], text: o[1] }));
     });
-    var bClear = S.el("button", { class: "btn sm ghost danger", text: "Убрать готовые" });
+    var bClear = I.btn("trash", { class: "btn sm ghost danger", label: "Убрать готовые" });
     bar.appendChild(input);
     bar.appendChild(sel);
     bar.appendChild(bClear);
@@ -530,7 +683,7 @@
       var list = S.el("div", { class: "list" });
       shown.forEach(function (t) {
         var item = S.el("div", { class: "item" + (t.done ? " done" : "") });
-        var cb = S.el("span", { class: "cb", text: t.done ? "✓" : "" });
+        var cb = S.el("span", { class: "cb" }, t.done ? I.svg("check") : "");
         cb.addEventListener("click", function () {
           t.done = !t.done;
           t.updated = Date.now();
@@ -542,7 +695,7 @@
           var v = prompt("Задача:", t.text);
           if (v) { t.text = v; saveTasks(); draw(); }
         });
-        var toChat = S.el("button", { class: "btn sm ghost", title: "Обсудить в чате", text: "→" });
+        var toChat = I.btn("arrowRight", { title: "Обсудить в чате" });
         toChat.addEventListener("click", function () {
           Chat.openWindow();
           setTimeout(function () {
@@ -550,7 +703,7 @@
             if (box) { box.value = "Помоги с задачей: " + t.text; box.focus(); }
           }, 120);
         });
-        var x = S.el("button", { class: "btn sm ghost danger", text: "×" });
+        var x = I.btn("close", { class: "btn sm ghost danger", title: "Удалить" });
         x.addEventListener("click", function () {
           tasks = tasks.filter(function (o) { return o.id !== t.id; });
           saveTasks();
@@ -592,9 +745,9 @@
     var pane = S.el("div", { class: "pane" });
     var bar = S.el("div", { class: "chat-bar" });
     var path = S.el("div", { class: "title mono", text: "workspace/" });
-    var bUp = S.el("button", { class: "btn sm ghost", text: "↑" });
-    var bRefresh = S.el("button", { class: "btn sm ghost", text: "⟳" });
-    var bNew = S.el("button", { class: "btn sm ghost", text: "+ файл" });
+    var bUp = I.btn("arrowUp", { title: "На уровень выше" });
+    var bRefresh = I.btn("refresh", { title: "Обновить" });
+    var bNew = I.btn("plus", { label: "файл" });
     bar.appendChild(bUp);
     bar.appendChild(path);
     bar.appendChild(bNew);
@@ -625,7 +778,7 @@
         var list = S.el("div", { class: "list" });
         res.entries.forEach(function (entry) {
           var item = S.el("div", { class: "item" });
-          item.appendChild(S.el("span", { text: entry.dir ? "📁" : "📄" }));
+          item.appendChild(S.el("span", { class: "ic-wrap" }, I.svg(entry.dir ? "folder" : "file")));
           var nm = S.el("span", { class: "grow", text: entry.name });
           item.appendChild(nm);
           if (!entry.dir) {
@@ -648,7 +801,7 @@
         if (!res.ok) { S.toast(res.error || "Не прочиталось", "bad"); return; }
         body.innerHTML = "";
         var head = S.el("div", { class: "inline", style: "margin-bottom:10px" });
-        var bBack = S.el("button", { class: "btn sm", text: "← назад" });
+        var bBack = I.btn("arrowUp", { class: "btn sm", label: "назад" });
         bBack.addEventListener("click", draw);
         var bSave = S.el("button", { class: "btn sm primary", text: "Сохранить" });
         var bToChat = S.el("button", { class: "btn sm", text: "В чат" });

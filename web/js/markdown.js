@@ -22,37 +22,56 @@
     return null;
   }
 
-  /* very light tokenizer that runs on already escaped text */
+  /* Very light tokenizer running on already escaped text.
+     Matched pieces are parked behind a placeholder so later passes cannot
+     tokenize them again. The placeholder index is encoded as a private use
+     character rather than digits, otherwise the number pass would match the
+     index itself and shred the earlier match. */
+  var SLOT_BASE = 0xe000;
+  var SLOT_RE = /\u0000([-])\u0000/g;
+
+  function commentRe(lang) {
+    lang = (lang || "").toLowerCase();
+    if (/^(py|python|sh|bash|zsh|yaml|yml|toml|ini|conf)$/.test(lang)) return /#[^\n]*/g;
+    if (/^(bat|cmd|batch)$/.test(lang)) return /(?:^|\s)(?:rem|::)[^\n]*/gim;
+    if (/^(ps1|powershell)$/.test(lang)) return /#[^\n]*/g;
+    if (/^(sql)$/.test(lang)) return /--[^\n]*/g;
+    return /\/\/[^\n]*/g;
+  }
+
   function highlight(code, lang) {
     var words = pickLang(lang);
     var slots = [];
 
     function stash(html) {
+      if (slots.length >= 6000) return html;
       slots.push(html);
-      return "\u0000" + (slots.length - 1) + "\u0000";
+      return "\u0000" + String.fromCharCode(SLOT_BASE + slots.length - 1) + "\u0000";
+    }
+
+    function wrap(cls) {
+      return function (match) {
+        return stash('<span class="' + cls + '">' + match + "</span>");
+      };
     }
 
     var out = code;
-    /* strings first so keywords inside them stay plain */
-    out = out.replace(/(&quot;|&#39;|`)(?:(?!\1)[\s\S])*?\1/g, function (m) {
-      return stash('<span class="tk-str">' + m + "</span>");
-    });
-    /* comments */
-    out = out.replace(/(^|\s)(\/\/|#|rem\s)[^\n]*/gim, function (m) {
-      return stash('<span class="tk-com">' + m + "</span>");
-    });
-    out = out.replace(/\/\*[\s\S]*?\*\//g, function (m) {
-      return stash('<span class="tk-com">' + m + "</span>");
-    });
-    if (words) {
-      out = out.replace(words, function (m) {
-        return stash('<span class="tk-key">' + m + "</span>");
+    /* strings first, so keywords and numbers inside them stay plain */
+    out = out.replace(/(&quot;|&#39;|`)(?:(?!\1)[\s\S])*?\1/g, wrap("tk-str"));
+    /* then comments, which may legitimately swallow a stashed string */
+    out = out.replace(/\/\*[\s\S]*?\*\//g, wrap("tk-com"));
+    out = out.replace(commentRe(lang), wrap("tk-com"));
+    if (words) out = out.replace(words, wrap("tk-key"));
+    out = out.replace(/\b\d+(?:\.\d+)?\b/g, wrap("tk-num"));
+
+    /* restore repeatedly: a comment can hold a string that holds nothing else */
+    for (var pass = 0; pass < 6 && SLOT_RE.test(out); pass++) {
+      SLOT_RE.lastIndex = 0;
+      out = out.replace(SLOT_RE, function (_, ch) {
+        return slots[ch.charCodeAt(0) - SLOT_BASE];
       });
+      SLOT_RE.lastIndex = 0;
     }
-    out = out.replace(/\b\d+(\.\d+)?\b/g, function (m) {
-      return stash('<span class="tk-num">' + m + "</span>");
-    });
-    out = out.replace(/\u0000(\d+)\u0000/g, function (_, i) { return slots[+i]; });
     return out;
   }
 

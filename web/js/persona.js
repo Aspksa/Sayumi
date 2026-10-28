@@ -22,6 +22,7 @@
     image: "assets/sayumi.png",
     imageBlink: "",
     alive: true,
+    dust: true,
     aliveLevel: 50,
     autoHide: false,
     wheelSize: true,
@@ -309,7 +310,7 @@
     });
     blinkCtl.appendChild(bBlink);
     if (data.imageBlink) {
-      var bBlinkOff = S.el("button", { class: "btn sm ghost danger", text: "×" });
+      var bBlinkOff = I.btn("close", { class: "btn sm ghost danger", title: "Убрать кадр" });
       bBlinkOff.addEventListener("click", function () {
         set({ imageBlink: "" });
         if (global.Avatar) Avatar.blink();
@@ -347,6 +348,10 @@
       set({ aliveLevel: v });
       if (global.Avatar) Avatar.style();
     }, " %");
+    rowSwitch(secM, "Золотая пыль вокруг", data.dust, function (v) {
+      set({ dust: v });
+      if (global.Avatar) Avatar.dust();
+    }, "Редкие медленные искры");
     rowSwitch(secM, "Уходить, пока вы печатаете", data.autoHide, function (v) {
       set({ autoHide: v });
     }, "Становится почти прозрачной и не мешает");
@@ -375,7 +380,7 @@
     data.facts.forEach(function (fact, i) {
       var item = S.el("div", { class: "item" });
       item.appendChild(S.el("span", { class: "grow", text: fact }));
-      var x = S.el("button", { class: "btn sm ghost danger", text: "×" });
+      var x = I.btn("close", { class: "btn sm ghost danger", title: "Убрать" });
       x.addEventListener("click", function () {
         data.facts.splice(i, 1);
         set({ facts: data.facts });

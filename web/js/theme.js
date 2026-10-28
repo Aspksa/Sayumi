@@ -151,6 +151,7 @@
       meta.setAttribute("content", bg ? bg.hex : "#000000");
     }
     S.emit("theme", state);
+    if (global.Avatar && Avatar.dust) Avatar.dust();
   }
 
   function set(patch, silent) {

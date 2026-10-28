@@ -101,18 +101,18 @@
     var main = S.el("div", { class: "chat-main" });
 
     var bar = S.el("div", { class: "chat-bar" });
-    var bSide = S.el("button", { class: "btn sm ghost", title: "Список чатов", text: "☰" });
+    var bSide = I.btn("menu", { title: "Список чатов" });
     bSide.addEventListener("click", function () { side.classList.toggle("hidden"); });
     var title = S.el("div", { class: "title" });
     var chip = S.el("div", { class: "model-chip", title: "Настройки модели" });
     chip.addEventListener("click", toggleModelPanel);
-    var bFind = S.el("button", { class: "btn sm ghost", title: "Поиск в диалоге", text: "⌕" });
+    var bFind = I.btn("search", { title: "Поиск в диалоге" });
     bFind.addEventListener("click", toggleFind);
-    var bTpl = S.el("button", { class: "btn sm ghost", title: "Шаблоны", text: "✎" });
+    var bTpl = I.btn("pencil", { title: "Шаблоны" });
     bTpl.addEventListener("click", showTemplates);
-    var bExport = S.el("button", { class: "btn sm ghost", title: "Экспорт", text: "⤓" });
+    var bExport = I.btn("download", { title: "Экспорт" });
     bExport.addEventListener("click", showExport);
-    var bClear = S.el("button", { class: "btn sm ghost danger", title: "Очистить диалог", text: "⌫" });
+    var bClear = I.btn("trash", { class: "btn sm ghost danger", title: "Очистить диалог" });
     bClear.addEventListener("click", function () {
       var s = current();
       if (!s.messages.length) return;
@@ -143,8 +143,8 @@
       spellcheck: "false"
     });
     var sideBtns = S.el("div", { class: "side" });
-    var bAttach = S.el("button", { class: "btn icon ghost", title: "Прикрепить файл", text: "📎" });
-    var bMic = S.el("button", { class: "btn icon ghost", title: "Голосовой ввод", text: "🎙" });
+    var bAttach = I.btn("clip", { class: "btn icon ghost", title: "Прикрепить файл" });
+    var bMic = I.btn("mic", { class: "btn icon ghost", title: "Голосовой ввод" });
     var bSend = S.el("button", { class: "btn primary", text: S.t("send") });
     sideBtns.appendChild(bAttach);
     sideBtns.appendChild(bMic);
@@ -160,7 +160,7 @@
     var hint = S.el("div", { class: "hintbar" });
     var meter = S.el("span", { class: "mono" });
     var hintText = S.el("span", { class: "grow" });
-    var bTts = S.el("button", { class: "btn sm ghost", text: "🔊 TTS" });
+    var bTts = I.btn("sound", { label: "TTS" });
     bTts.addEventListener("click", function () {
       cfg.tts = !cfg.tts;
       persistConfig();
@@ -379,14 +379,21 @@
     }
 
     var acts = S.el("div", { class: "acts" });
-    function act(label, name) {
-      var b = S.el("button", { type: "button", "data-act": name, text: label });
+    function act(icon, name, label, title) {
+      var b = S.el("button", { type: "button", "data-act": name, title: title || label || "" });
+      b.innerHTML = I.svg(icon) + (label ? "<span>" + S.esc(label) + "</span>" : "");
       acts.appendChild(b);
     }
-    act(S.t("copy"), "copy");
-    if (m.role === "user") { act(S.t("edit"), "edit"); act("↻", "resend"); }
-    if (m.role === "assistant") { act(S.t("regen"), "regen"); act("🔊", "speak"); }
-    act("×", "del");
+    act("copy", "copy", S.t("copy"));
+    if (m.role === "user") {
+      act("pencil", "edit", S.t("edit"));
+      act("refresh", "resend", null, "Отправить заново");
+    }
+    if (m.role === "assistant") {
+      act("refresh", "regen", S.t("regen"));
+      act("sound", "speak", null, S.t("speak"));
+    }
+    act("trash", "del", null, S.t("del"));
 
     wrap.appendChild(who);
     wrap.appendChild(body);

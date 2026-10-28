@@ -11,6 +11,7 @@
   var bubbleTimer = null;
   var blinkTimer = null;
   var hideTimer = null;
+  var dust = null;
 
   var IDLE_RU = [
     "Я рядом.",
@@ -109,11 +110,87 @@
     }, { passive: false });
 
     window.addEventListener("resize", S.debounce(place, 120));
-    S.on("persona", function () { style(); place(); startBlink(); });
+    S.on("persona", function () { style(); place(); startBlink(); startDust(); });
 
     watchTyping();
     startIdle();
     startBlink();
+    startDust();
+  }
+
+  /* ---------------------------------------------------------- gold dust */
+  /* slow motes drifting upward around her, drawn on a small canvas */
+  function startDust() {
+    var canvas = S.qs("#avatar .dust");
+    if (!canvas) return;
+    if (dust) { cancelAnimationFrame(dust.raf); dust = null; }
+
+    var p = settings();
+    var motion = document.documentElement.getAttribute("data-motion") !== "off";
+    if (!p.dust || p.hidden || !motion) {
+      canvas.style.display = "none";
+      return;
+    }
+    canvas.style.display = "";
+
+    var ctx = canvas.getContext("2d");
+    var motes = [];
+    var count = 20;
+
+    function reset(m, seed) {
+      m.x = Math.random();
+      m.y = seed ? Math.random() : 1.05;
+      m.r = 0.6 + Math.random() * 1.5;
+      m.speed = 0.00045 + Math.random() * 0.0011;
+      m.drift = (Math.random() - 0.5) * 0.0010;
+      m.phase = Math.random() * Math.PI * 2;
+      m.life = 0;
+    }
+    for (var i = 0; i < count; i++) { var m = {}; reset(m, true); motes.push(m); }
+
+    dust = { raf: 0 };
+    (function loop() {
+      var w = canvas.clientWidth, h = canvas.clientHeight;
+      if (!w || !h) { dust.raf = requestAnimationFrame(loop); return; }
+      var ratio = window.devicePixelRatio || 1;
+      if (canvas.width !== w * ratio || canvas.height !== h * ratio) {
+        canvas.width = w * ratio;
+        canvas.height = h * ratio;
+      }
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+
+      var cs = getComputedStyle(document.documentElement);
+      var rgb = (cs.getPropertyValue("--acc-rgb") || "201,162,39").trim();
+
+      motes.forEach(function (m) {
+        m.life += 0.016;
+        m.y -= m.speed;
+        m.x += m.drift + Math.sin(m.life * 0.9 + m.phase) * 0.0009;
+        if (m.y < -0.05) reset(m, false);
+
+        var px = m.x * w, py = m.y * h;
+        /* fade in at the bottom, out at the top */
+        var alpha = Math.min(1, (1.05 - m.y) * 2.2) * Math.min(1, m.y * 3.2);
+        alpha *= 0.55 + 0.45 * Math.sin(m.life * 1.6 + m.phase);
+        if (alpha <= 0.02) return;
+
+        var glow = ctx.createRadialGradient(px, py, 0, px, py, m.r * 4.5);
+        glow.addColorStop(0, "rgba(" + rgb + "," + (alpha * 0.9).toFixed(3) + ")");
+        glow.addColorStop(1, "rgba(" + rgb + ",0)");
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(px, py, m.r * 4.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = "rgba(" + rgb + "," + Math.min(1, alpha * 1.3).toFixed(3) + ")";
+        ctx.beginPath();
+        ctx.arc(px, py, m.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      dust.raf = requestAnimationFrame(loop);
+    })();
   }
 
   /* ------------------------------------------------------------- blinking */
@@ -270,6 +347,7 @@
   global.Avatar = {
     init: build,
     blink: startBlink,
+    dust: startDust,
     say: say,
     style: style,
     place: place,
