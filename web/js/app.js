@@ -54,6 +54,7 @@
       if (e.key === "/") { e.preventDefault(); Win.toggle("chat", Chat.openWindow); }
       else if (e.key === ",") { e.preventDefault(); Settings.openWindow(); }
       else if (e.key === ".") { e.preventDefault(); Persona.openWindow(); }
+      else if (e.key === "m") { e.preventDefault(); Memory.openWindow(); }
     });
   }
 
@@ -68,6 +69,7 @@
         { label: S.t("tasks"), act: function () { Tools.openTasks(); } },
         { label: S.t("files"), act: function () { Tools.openFiles(); } },
         { label: "Граф заметок", act: function () { Tools.openGraph(); } },
+        { label: "Память", act: function () { Memory.openWindow(); } },
         { sep: true },
         { label: S.t("persona"), act: function () { Persona.openWindow(); } },
         { label: S.t("settings"), act: function () { Settings.openWindow(); } }
@@ -85,6 +87,7 @@
     var ctxSeg = S.qs("#st-ctx");
     var work = S.qs("#st-work");
     var theme = S.qs("#st-theme");
+    var mem = S.qs("#st-mem");
     if (!srv) return;
 
     dot.className = "dot " + (S.server.up ? "live" : "off");
@@ -107,6 +110,10 @@
     var openTasks = Tools.tasks.filter(function (t) { return !t.done; }).length;
     work.innerHTML = I.svg("note") + "<b>" + Tools.notes.length + "</b> зам · " +
       I.svg("task") + "<b>" + openTasks + "</b> задач";
+
+    var lv = Memory.levelProgress();
+    mem.innerHTML = I.svg("sparkle") + "<b>" + Memory.db.facts.length + "</b> пам · ур. <b>" +
+      lv.lv + "</b>";
 
     var st = Theme.state;
     var bg = Theme.BACKGROUNDS.filter(function (b) { return b.id === st.bg; })[0];
@@ -132,8 +139,9 @@
     });
     S.qs("#st-model").addEventListener("click", function () { Settings.openWindow(); });
     S.qs("#st-work").addEventListener("click", function () { Tools.openTasks(); });
+    S.qs("#st-mem").addEventListener("click", function () { Memory.openWindow(); });
 
-    ["server", "theme", "persona", "lang"].forEach(function (name) {
+    ["server", "theme", "persona", "lang", "memory"].forEach(function (name) {
       S.on(name, statusBar);
     });
     S.on("win:close", statusBar);

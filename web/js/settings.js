@@ -11,6 +11,8 @@
              ruNote: "язык, окна, клавиши",  enNote: "language, windows, keys" },
     model: { ru: "Модель",     en: "Model",      icon: "cpu",
              ruNote: "подключение и ответы",  enNote: "connection and replies" },
+    memory:{ ru: "Память",     en: "Memory",     icon: "sparkle",
+             ruNote: "что и как запоминать",  enNote: "what and how to remember" },
     data:  { ru: "Данные",     en: "Data",       icon: "database",
              ruNote: "сервер и копии",        enNote: "server and backups" },
     about: { ru: "О проекте",  en: "About",      icon: "info",
@@ -50,7 +52,8 @@
     function render() {
       body.innerHTML = "";
       body.scrollTop = 0;
-      ({ look: drawLook, ui: drawUI, model: drawModel, data: drawData, about: drawAbout })[active](body, render);
+      ({ look: drawLook, ui: drawUI, model: drawModel, memory: drawMemory,
+         data: drawData, about: drawAbout })[active](body, render);
     }
     render();
 
@@ -627,6 +630,88 @@
     });
     sec3.appendChild(S.el("div", { class: "inline" })).appendChild(bTest);
     sec3.appendChild(out);
+  }
+
+  /* ------------------------------------------------------------- memory */
+  function drawMemory(root, redraw) {
+    var ms = Memory.settings;
+    var lv = Memory.levelProgress();
+
+    var sec = section(root, "Долговременная память",
+      "Она помнит между запусками и подмешивает нужное в каждый запрос", "sparkle");
+
+    rowSwitch(sec, "Память включена", ms.enabled, function (v) {
+      Memory.setSettings({ enabled: v });
+      redraw();
+    }, "Выключите, если хотите разговор без следов");
+
+    if (ms.enabled) {
+      rowSwitch(sec, "Запоминать самой", ms.autoLearn, function (v) {
+        Memory.setSettings({ autoLearn: v });
+      }, "Ловит имена, привычки, правила и решения прямо из речи");
+
+      rowSwitch(sec, "Выделять факты моделью", ms.distill, function (v) {
+        Memory.setSettings({ distill: v });
+      }, "Раз в несколько реплик просит модель вытащить то, что пропустили правила");
+
+      rowSwitch(sec, "Подстраивать характер", ms.adapt, function (v) {
+        Memory.setSettings({ adapt: v });
+      }, "«отвечай короче», «давай на ты» — и ползунки сдвинутся сами");
+
+      rowRange(sec, "Сколько вспоминать за раз", ms.recall, 2, 20, 1, function (v) {
+        Memory.setSettings({ recall: v });
+      }, " записей");
+
+      rowRange(sec, "Как часто звать модель", ms.cooldown, 2, 20, 1, function (v) {
+        Memory.setSettings({ cooldown: v });
+      }, " ответов");
+    }
+
+    var secS = section(root, "Состояние", "Накопленное на этом компьютере", "database");
+    var rows = [
+      ["Записей в памяти", String(Memory.db.facts.length)],
+      ["Уровень", lv.lv + "  (" + lv.have + " / " + lv.need + " опыта)"],
+      ["Сообщений от вас", String(Memory.db.growth.messages)],
+      ["Ответов дано", String(Memory.db.growth.replies)],
+      ["Подстроек характера", String((Memory.db.growth.tuned || []).length)],
+      ["Диалогов в памяти", String(Object.keys(Memory.db.sessions || {}).length)]
+    ];
+    var list = S.el("div", { class: "list" });
+    rows.forEach(function (r) {
+      var item = S.el("div", { class: "item" });
+      item.appendChild(S.el("span", { class: "grow muted", text: r[0] }));
+      item.appendChild(S.el("span", { class: "mono gold tiny", text: r[1] }));
+      list.appendChild(item);
+    });
+    secS.appendChild(list);
+
+    var acts = S.el("div", { class: "inline", style: "margin-top:12px" });
+    var bOpen = S.el("button", { class: "btn primary", text: "Открыть память" });
+    bOpen.addEventListener("click", function () { Memory.openWindow(); });
+    var bWipe = S.el("button", { class: "btn danger", text: "Стереть память" });
+    bWipe.addEventListener("click", function () {
+      if (!confirm("Стереть всю память и накопленный опыт?")) return;
+      Memory.wipe();
+      redraw();
+    });
+    acts.appendChild(bOpen);
+    acts.appendChild(bWipe);
+    secS.appendChild(acts);
+
+    var secH = section(root, "Как ей запомнить нужное", null, "info");
+    var box = S.el("div", { class: "body", style: "background:var(--bg-0);padding:12px;border-radius:var(--r-m)" });
+    box.innerHTML = MD.render([
+      "В чате достаточно сказать прямо:",
+      "",
+      "- `запомни: проект на Python, отвечай кратко`",
+      "- `меня зовут Алексей`",
+      "- `я использую Cloud.ru`",
+      "- `никогда не предлагай сторонние библиотеки`",
+      "",
+      "Команда `/memory` открывает всё, что она помнит. " +
+      "Там запись можно закрепить навсегда, поправить двойным щелчком или забыть."
+    ].join("\n"));
+    secH.appendChild(box);
   }
 
   /* --------------------------------------------------------------- data */

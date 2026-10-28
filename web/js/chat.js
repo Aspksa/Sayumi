@@ -504,6 +504,7 @@
     }
     s.updated = Date.now();
     persist();
+    if (global.Memory) Memory.onUser(text, s);
 
     ui.input.value = "";
     autoGrow(ui.input);
@@ -515,6 +516,12 @@
   function buildPayload() {
     var s = current();
     var persona = (global.Persona && Persona.systemPrompt()) || "";
+    var lastUser = "";
+    for (var i = s.messages.length - 1; i >= 0; i--) {
+      if (s.messages[i].role === "user") { lastUser = s.messages[i].text; break; }
+    }
+    var recalled = (global.Memory && Memory.context(lastUser)) || "";
+    if (recalled) persona += "\n\n" + recalled;
     var history = s.messages
       .filter(function (m) { return m.role === "user" || m.role === "assistant"; })
       .slice(-cfg.contextLimit)
@@ -584,6 +591,7 @@
     if (!holder.text) holder.text = "(пустой ответ)";
     s.updated = Date.now();
     persist();
+    if (global.Memory) Memory.onReply(s);
     drawLog();
     if (cfg.tts) speak(holder.text);
     if (global.Avatar && !Win.get("chat")) Avatar.say("Ответ готов");
@@ -827,6 +835,8 @@
       "| `/lang ru` | язык интерфейса |",
       "| `/notes`, `/tasks`, `/files` | открыть панели |",
       "| `/graph` | граф связей заметок |",
+      "| `/memory` | что она помнит |",
+      "| `запомни: ...` | записать в долгую память |",
       "| `/persona` | настройки Sayumi |",
       "| `/settings` | настройки проекта |",
       "| `/tts` | озвучивание ответов |",
@@ -885,6 +895,7 @@
         if (ui.tts) ui.tts.classList.toggle("on", cfg.tts);
         pushSystem("Озвучивание: " + (cfg.tts ? "вкл" : "выкл"));
         return true;
+      case "memory": case "память": global.Memory.openWindow(); return true;
       case "notes": global.Tools.openNotes(); return true;
       case "graph": global.Tools.openGraph(); return true;
       case "tasks": global.Tools.openTasks(); return true;
