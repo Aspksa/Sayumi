@@ -585,7 +585,7 @@
       });
       if (added) {
         note("модель выделила " + added + " новых фактов", "distill");
-        S.toast("Запомнила " + added + " новых фактов", "ok");
+        if (global.Notify) Notify.add("memory", "Запомнила новых фактов: " + added);
       }
     }).catch(function () {});
   }
@@ -677,7 +677,9 @@
       note("осмыслила память: объединила " + merged + ", убрала " + dropped, "reflect");
       save();
       if (merged || dropped) {
-        S.toast("Осмыслила память: −" + (merged + dropped) + " записей", "ok");
+        if (global.Notify) {
+          Notify.add("memory", "Осмыслила память: объединила " + merged + ", убрала " + dropped);
+        }
       } else if (manual) {
         S.toast("Память уже в порядке", "ok");
       }

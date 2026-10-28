@@ -117,8 +117,10 @@
       I.svg("task") + "<b>" + openTasks + "</b> задач";
 
     var lv = Memory.levelProgress();
+    var pending = Notify.unread();
     mem.innerHTML = I.svg("sparkle") + "<b>" + Memory.db.facts.length + "</b> пам · ур. <b>" +
-      lv.lv + "</b>";
+      lv.lv + "</b>" +
+      (pending ? ' · <b class="gold">' + pending + "</b> нов." : "");
 
     var st = Theme.state;
     var bg = Theme.BACKGROUNDS.filter(function (b) { return b.id === st.bg; })[0];
@@ -146,7 +148,7 @@
     S.qs("#st-work").addEventListener("click", function () { Tools.openTasks(); });
     S.qs("#st-mem").addEventListener("click", function () { Memory.openWindow(); });
 
-    ["server", "theme", "persona", "lang", "memory"].forEach(function (name) {
+    ["server", "theme", "persona", "lang", "memory", "notify"].forEach(function (name) {
       S.on(name, statusBar);
     });
     S.on("win:close", statusBar);

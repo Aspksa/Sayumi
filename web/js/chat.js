@@ -715,7 +715,13 @@
     if (global.Memory) Memory.onReply(s);
     drawLog();
     if (cfg.tts) speak(holder.text);
-    if (global.Avatar && !Win.get("chat")) Avatar.say("Ответ готов");
+    if (!Win.get("chat")) {
+      if (global.Avatar) Avatar.say("Ответ готов");
+      if (global.Notify) {
+        Notify.add("reply", "Ответила: " + MD.strip(holder.text).slice(0, 90),
+          { ref: Links.ref("chat", s.id) });
+      }
+    }
   }
 
   function setBusy(on) {

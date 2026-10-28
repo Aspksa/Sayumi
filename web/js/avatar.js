@@ -46,8 +46,19 @@
 
     var sx = 0, sy = 0, ox = 0, oy = 0, moved = 0, dragging = false, pid = null;
 
+    var badge = S.qs("#avatar .badge");
+    if (badge) {
+      badge.addEventListener("pointerdown", function (e) { e.stopPropagation(); });
+      badge.addEventListener("click", function (e) {
+        e.stopPropagation();
+        e.preventDefault();
+        Notify.toggle();
+      });
+    }
+
     node.addEventListener("pointerdown", function (e) {
       if (e.button === 2) return;              /* right button is a menu, not a drag */
+      if (e.target.closest && e.target.closest(".badge")) return;
       dragging = true;
       moved = 0;
       pid = e.pointerId;
@@ -81,6 +92,7 @@
       } else {
         if (settings().snap) snapToEdge();
         store();
+        if (global.Notify && Notify.isOpen) { Notify.close(); }
       }
     }
     node.addEventListener("pointerup", release);
@@ -116,6 +128,7 @@
     startIdle();
     startBlink();
     startDust();
+    if (global.Notify) Notify.paint();
   }
 
   /* ---------------------------------------------------------- gold dust */

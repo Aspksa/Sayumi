@@ -679,6 +679,123 @@ async function waitFor(url, tries = 40) {
       await page.evaluate(() => Object.keys(Win.open).forEach((k) => Win.open[k].close()));
     });
 
+    /* ------------------------------------------------------ notifications */
+    describe("уведомления у аватара");
+    await it("значок появляется и считает непрочитанные", async () => {
+      await page.evaluate(() => {
+        Object.keys(Win.open).forEach((k) => Win.open[k].close());
+        Notify.clear();
+      });
+      await page.waitForTimeout(300);
+      eq(await page.locator("#avatar .badge.show").count(), 0, "пока тихо — значка нет");
+
+      await page.evaluate(() => {
+        Notify.add("due", "Срок сегодня: проверить значок");
+        Notify.add("memory", "Запомнила новых фактов: 2");
+      });
+      await page.waitForTimeout(400);
+      eq(await page.locator("#avatar .badge.show").count(), 1);
+      eq(await page.evaluate(() => document.querySelector("#avatar .badge").textContent), "2");
+    });
+
+    await it("просрочка красит значок тревожным", async () => {
+      await page.evaluate(() => Notify.add("late", "Просрочено: вчерашняя задача"));
+      await page.waitForTimeout(300);
+      eq(await page.locator("#avatar .badge.alarm").count(), 1);
+    });
+
+    await it("клик по значку открывает панель, а не чат", async () => {
+      await page.locator("#avatar .badge").click();
+      await page.waitForTimeout(400);
+      eq(await page.locator(".notif.show").count(), 1, "панель должна открыться");
+      eq(await page.locator('[data-win="chat"]').count(), 0, "чат открываться не должен");
+      ok(await page.locator(".notif-item").count() >= 3);
+    });
+
+    await it("прочитанное гасит счётчик", async () => {
+      await page.locator(".notif header button", { hasText: "Прочитано" }).click();
+      await page.waitForTimeout(400);
+      eq(await page.evaluate(() => Notify.unread()), 0);
+      eq(await page.locator("#avatar .badge.show").count(), 0);
+      await page.evaluate(() => Notify.close());
+    });
+
+    await it("уведомление ведёт к своей задаче", async () => {
+      await page.evaluate(() => {
+        Notify.clear();
+        localStorage.setItem("sayumi.tools.tasks", JSON.stringify([
+          { id: "nt1", text: "Задача из уведомления", col: "todo", prio: "normal", due: "", updated: Date.now() }
+        ]));
+      });
+      await page.reload({ waitUntil: "networkidle" });
+      await page.waitForTimeout(800);
+      await page.evaluate(() => Notify.add("due", "Срок: Задача из уведомления",
+        { ref: Links.ref("task", "nt1") }));
+      await page.waitForTimeout(300);
+      await page.locator("#avatar .badge").click();
+      await page.waitForTimeout(400);
+      await page.locator(".notif-item").first().click();
+      await page.waitForTimeout(800);
+      eq(await page.locator('[data-win="tasks"]').count(), 1, "должны открыться задачи");
+      await page.evaluate(() => Object.keys(Win.open).forEach((k) => Win.open[k].close()));
+    });
+
+    await it("одно и то же напоминание не дублируется", async () => {
+      const count = await page.evaluate(() => {
+        Notify.clear();
+        Notify.add("due", "дубль", { once: "x:1" });
+        Notify.add("due", "дубль", { once: "x:1" });
+        Notify.add("due", "дубль", { once: "x:1" });
+        return Notify.list.length;
+      });
+      eq(count, 1);
+    });
+
+    /* ------------------------------------------------------- board polish */
+    describe("эффекты доски");
+    await it("колонка показывает долю задач полоской", async () => {
+      await page.evaluate(() => {
+        Object.keys(Win.open).forEach((k) => Win.open[k].close());
+        localStorage.setItem("sayumi.tools.tasks", JSON.stringify([
+          { id: "b1", text: "раз", col: "todo", prio: "normal", due: "", updated: Date.now() },
+          { id: "b2", text: "два", col: "todo", prio: "high", due: "", updated: Date.now() },
+          { id: "b3", text: "три", col: "done", done: true, prio: "low", due: "", updated: Date.now() }
+        ]));
+      });
+      await page.reload({ waitUntil: "networkidle" });
+      await page.waitForTimeout(800);
+      await page.click("#nav-tasks");
+      await page.waitForTimeout(900);
+      const widths = await page.evaluate(() =>
+        [...document.querySelectorAll('[data-win="tasks"] .bar i')].map((el) => el.style.width));
+      eq(widths.length, 3);
+      ok(widths[0] === "67%" || widths[0] === "66%", "первая колонка держит две трети: " + widths);
+    });
+
+    await it("важная задача получает свою полосу", async () => {
+      eq(await page.locator('[data-win="tasks"] .task.prio-high').count(), 1);
+    });
+
+    await it("карточки появляются с задержкой друг за другом", async () => {
+      const delays = await page.evaluate(() =>
+        [...document.querySelectorAll('[data-win="tasks"] .task')].map((el) => el.style.animationDelay));
+      ok(delays.some((d) => d && d !== "0ms"), "должна быть лесенка задержек: " + delays);
+    });
+
+    await it("перенос в готовое помечает карточку и сохраняет", async () => {
+      await page.evaluate(() => {
+        const t = Tools.tasks.find((x) => x.id === "b1");
+        t.col = "done"; t.done = true;
+        S.save("tools.tasks", Tools.tasks);
+      });
+      await page.evaluate(() => { Win.open.tasks.close(); Tools.openTasks(); });
+      await page.waitForTimeout(600);
+      const done = await page.evaluate(() =>
+        document.querySelectorAll('[data-win="tasks"] .task.done').length);
+      eq(done, 2, "готовых карточек должно стать две");
+      await page.evaluate(() => Object.keys(Win.open).forEach((k) => Win.open[k].close()));
+    });
+
     describe("консоль");
     await it("ни одной ошибки за весь прогон", () => {
       eq(errors, []);

@@ -813,8 +813,16 @@
         node.appendChild(Links.chips(ref, { hideEmpty: true, onChange: draw }));
       }
 
+      /* the highlight follows the pointer across the card */
+      node.addEventListener("pointermove", function (e) {
+        var box = node.getBoundingClientRect();
+        node.style.setProperty("--mx", (e.clientX - box.left) + "px");
+        node.style.setProperty("--my", (e.clientY - box.top) + "px");
+      });
+
       node.addEventListener("dragstart", function (e) {
         e.dataTransfer.setData("text/plain", task.id);
+        e.dataTransfer.effectAllowed = "move";
         node.classList.add("dragging");
       });
       node.addEventListener("dragend", function () { node.classList.remove("dragging"); });
@@ -828,8 +836,14 @@
         var column = S.el("div", { class: "column", "data-col": col.id });
         var head = S.el("header");
         head.innerHTML = I.svg(col.icon) + "<b>" + col.label + "</b>" +
-          '<span class="count">' + items.length + "</span>";
+          '<span class="count" data-col="' + col.id + '">' + items.length + "</span>" +
+          '<span class="bar"><i></i></span>';
         column.appendChild(head);
+
+        /* how much of the board this column holds */
+        var fill = head.querySelector(".bar i");
+        var share = tasks.length ? Math.round(100 * items.length / tasks.length) : 0;
+        requestAnimationFrame(function () { fill.style.width = share + "%"; });
 
         var slot = S.el("div", { class: "slot" });
         items
@@ -852,11 +866,13 @@
           column.classList.remove("over");
           var id = e.dataTransfer.getData("text/plain");
           var task = tasks.filter(function (t) { return t.id === id; })[0];
-          if (!task) return;
+          if (!task || task.col === col.id) return;
+          var finished = col.id === "done" && task.col !== "done";
           task.col = col.id;
           task.done = col.id === "done";
           task.updated = Date.now();
           saveTasks();
+          landing = { id: id, celebrate: finished };
           draw();
         });
 
@@ -874,9 +890,12 @@
         var item = S.el("div", { class: "item" + (t.col === "done" ? " done" : "") });
         var cb = S.el("span", { class: "cb" }, t.col === "done" ? I.svg("check") : "");
         cb.addEventListener("click", function () {
-          t.col = t.col === "done" ? "todo" : "done";
-          t.done = t.col === "done";
+          var finished = t.col !== "done";
+          t.col = finished ? "done" : "todo";
+          t.done = finished;
+          t.updated = Date.now();
           saveTasks();
+          landing = { id: t.id, celebrate: finished };
           draw();
         });
         item.appendChild(cb);
@@ -889,7 +908,58 @@
       body.appendChild(list);
     }
 
+    var landing = null;
+    var seen = {};
+
+    /* a handful of sparks thrown from a point, for a finished task */
+    function sparkle(node) {
+      if (document.documentElement.getAttribute("data-motion") === "off") return;
+      var box = node.getBoundingClientRect();
+      var cx = box.left + box.width / 2;
+      var cy = box.top + box.height / 2;
+      for (var i = 0; i < 12; i++) {
+        var angle = (Math.PI * 2 * i) / 12 + Math.random() * 0.4;
+        var dist = 40 + Math.random() * 60;
+        var dot = S.el("div", { class: "spark" });
+        dot.style.left = cx + "px";
+        dot.style.top = cy + "px";
+        dot.style.setProperty("--dx", Math.cos(angle) * dist + "px");
+        dot.style.setProperty("--dy", Math.sin(angle) * dist + "px");
+        document.body.appendChild(dot);
+        setTimeout(function (el) { return function () { el.remove(); }; }(dot), 820);
+      }
+    }
+
+    /* remember where every card was, so the next paint can glide into place */
+    function capture() {
+      var map = {};
+      S.qsa(".task", body).forEach(function (node) {
+        map[node.getAttribute("data-id")] = node.getBoundingClientRect();
+      });
+      return map;
+    }
+
+    function glide(before) {
+      if (document.documentElement.getAttribute("data-motion") === "off") return;
+      S.qsa(".task", body).forEach(function (node) {
+        var id = node.getAttribute("data-id");
+        var old = before[id];
+        if (!old) return;
+        var now = node.getBoundingClientRect();
+        var dx = old.left - now.left;
+        var dy = old.top - now.top;
+        if (Math.abs(dx) < 2 && Math.abs(dy) < 2) return;
+        node.style.transition = "none";
+        node.style.transform = "translate(" + dx + "px," + dy + "px)";
+        requestAnimationFrame(function () {
+          node.style.transition = "";
+          node.style.transform = "";
+        });
+      });
+    }
+
     function draw() {
+      var before = capture();
       body.innerHTML = "";
       var late = tasks.filter(function (t) {
         var st = dueState(t);
@@ -909,6 +979,34 @@
 
       if (view.value === "board") drawBoard();
       else drawList();
+
+      glide(before);
+
+      /* new cards fade in one after another */
+      var fresh = 0;
+      S.qsa(".task", body).forEach(function (node) {
+        var id = node.getAttribute("data-id");
+        if (seen[id] || before[id]) return;
+        seen[id] = 1;
+        node.classList.add("enter");
+        node.style.animationDelay = (fresh * 45) + "ms";
+        fresh++;
+      });
+
+      /* the card that was just dropped gets a flash, and a finished one sparks */
+      if (landing) {
+        var node = S.qs('.task[data-id="' + landing.id + '"]', body);
+        if (node) {
+          node.classList.add("landed");
+          if (landing.celebrate) sparkle(node);
+        }
+        var badge = S.qs('.count[data-col="' + (landing.celebrate ? "done" : "") + '"]', body);
+        if (badge) {
+          badge.classList.add("bump");
+          setTimeout(function () { badge.classList.remove("bump"); }, 260);
+        }
+        landing = null;
+      }
     }
 
     input.addEventListener("keydown", function (e) {
@@ -973,11 +1071,10 @@
     if (!hits.length) return;
     S.save("tasks.reminded", seen);
 
-    hits.slice(0, 3).forEach(function (hit, i) {
-      setTimeout(function () {
-        S.toast((hit.state.kind === "late" ? "Просрочено: " : "Срок: ") + hit.task.text,
-          hit.state.kind === "late" ? "bad" : "", 5200);
-      }, 900 + i * 1400);
+    hits.forEach(function (hit) {
+      Notify.add(hit.state.kind === "late" ? "late" : "due",
+        (hit.state.kind === "late" ? "Просрочено: " : "Срок сегодня: ") + hit.task.text,
+        { ref: Links.ref("task", hit.task.id), once: "due:" + hit.task.id + ":" + today });
     });
     if (global.Avatar) {
       Avatar.say(hits.length === 1 ? "Срок: " + hits[0].task.text
