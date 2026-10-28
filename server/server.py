@@ -11,9 +11,11 @@ Pure standard library. Serves the web interface and a small JSON API:
     GET  /api/keys                list stored blob names
     GET  /api/files?dir=rel       list workspace entries
     GET  /api/file?path=rel       read a workspace text file
+    GET  /api/scan                read every indexable file in the workspace
     POST /api/file                write a workspace text file {path, text}
     POST /api/upload              store a base64 payload  {name, data}
     POST /api/models              list the models a provider offers
+    POST /api/embed               turn text into vectors for semantic recall
     POST /api/llm                 proxy a chat completion to an LLM provider
     POST /api/shutdown            stop the server (localhost only)
 
@@ -374,6 +376,47 @@ class SayumiHandler(BaseHTTPRequestHandler):
             rel = os.path.relpath(target, base).replace("\\", "/")
             return self.send_json({"ok": True, "dir": "" if rel == "." else rel, "entries": entries})
 
+        if path == "/api/scan":
+            # walk the workspace and hand back readable text for indexing
+            base = ensure_dir(os.path.join(STATE["data"], "workspace"))
+            exts = {".txt", ".md", ".py", ".js", ".ts", ".json", ".html", ".css",
+                    ".csv", ".yml", ".yaml", ".ini", ".cfg", ".sql", ".sh", ".bat",
+                    ".java", ".c", ".h", ".cpp", ".go", ".rs", ".php", ".rb", ".xml"}
+            skip = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build"}
+            budget = int(params.get("budget") or 1_500_000)
+            files = []
+            total = 0
+            for folder, dirs, names in os.walk(base):
+                dirs[:] = [d for d in dirs if d not in skip and not d.startswith(".")]
+                for name in sorted(names):
+                    ext = os.path.splitext(name)[1].lower()
+                    if ext not in exts:
+                        continue
+                    full = os.path.join(folder, name)
+                    try:
+                        size = os.path.getsize(full)
+                    except OSError:
+                        continue
+                    if size > 400_000 or total + size > budget:
+                        continue
+                    try:
+                        with open(full, "r", encoding="utf-8", errors="replace") as handle:
+                            text = handle.read(400_000)
+                    except OSError:
+                        continue
+                    total += len(text)
+                    files.append({
+                        "path": os.path.relpath(full, base).replace("\\", "/"),
+                        "size": size,
+                        "mtime": int(os.path.getmtime(full)),
+                        "text": text
+                    })
+                    if total >= budget:
+                        break
+                if total >= budget:
+                    break
+            return self.send_json({"ok": True, "files": files, "bytes": total})
+
         if path == "/api/file":
             base = ensure_dir(os.path.join(STATE["data"], "workspace"))
             target = safe_join(base, params.get("path", ""))
@@ -427,6 +470,9 @@ class SayumiHandler(BaseHTTPRequestHandler):
         if path == "/api/models":
             return self.handle_models(body)
 
+        if path == "/api/embed":
+            return self.handle_embed(body)
+
         if path == "/api/llm":
             return self.handle_llm(body)
 
@@ -477,6 +523,45 @@ class SayumiHandler(BaseHTTPRequestHandler):
             models = []
         models = sorted(set(m for m in models if m))
         return self.send_json({"ok": True, "models": models, "count": len(models)})
+
+    # ------------------------------------------------------------ embeddings
+    def handle_embed(self, body: dict):
+        """Turn a batch of strings into vectors via an OpenAI style endpoint."""
+        provider = (body.get("provider") or "openai").lower()
+        base = (body.get("baseUrl") or "").rstrip("/")
+        key = body.get("apiKey") or ""
+        model = body.get("model") or ""
+        texts = body.get("input") or []
+        if not isinstance(texts, list) or not texts:
+            return self.send_json({"ok": False, "error": "нечего векторизовать"}, 400)
+        if not model:
+            return self.send_json({"ok": False, "error": "не задана модель эмбеддингов"}, 400)
+        texts = [str(t)[:4000] for t in texts[:64]]
+
+        url = (base or PROVIDER_BASES.get(provider, PROVIDER_BASES["openai"])) + "/embeddings"
+        headers = {"content-type": "application/json"}
+        if key:
+            headers["authorization"] = "Bearer " + key
+        payload = json.dumps({"model": model, "input": texts}).encode("utf-8")
+        request = urllib.request.Request(url, data=payload, headers=headers, method="POST")
+
+        try:
+            with urllib.request.urlopen(request, timeout=90) as response:
+                data = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")[:600]
+            return self.send_json({"ok": False, "error": "HTTP %s" % exc.code, "detail": detail})
+        except Exception as exc:
+            return self.send_json({"ok": False, "error": str(exc)})
+
+        try:
+            rows = sorted(data.get("data") or [], key=lambda r: r.get("index", 0))
+            vectors = [r.get("embedding") for r in rows]
+        except Exception:
+            vectors = []
+        if not vectors:
+            return self.send_json({"ok": False, "error": "провайдер не вернул векторов"})
+        return self.send_json({"ok": True, "vectors": vectors, "dim": len(vectors[0])})
 
     # ------------------------------------------------------------------ llm
     def handle_llm(self, body: dict):

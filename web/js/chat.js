@@ -367,7 +367,10 @@
         '<div class="tiny muted" style="margin-top:14px">Введите <b class="gold">/</b> для списка команд</div>'));
     }
 
-    s.messages.forEach(function (m) { ui.log.appendChild(renderMessage(m)); });
+    s.messages.forEach(function (m) {
+      if (m.hidden) return;
+      ui.log.appendChild(renderMessage(m));
+    });
     scrollDown();
     updateMeter();
   }
@@ -420,6 +423,24 @@
     if (m.role === "assistant") {
       act("refresh", "regen", S.t("regen"));
       act("sound", "speak", null, S.t("speak"));
+      var session = current();
+      var variants = m.group ? session.messages.filter(function (x) { return x.group === m.group; }) : [];
+      if (variants.length > 1) {
+        var at = variants.indexOf(m) + 1;
+        var pager = S.el("span", {
+          class: "variants",
+          title: "Варианты этого ответа"
+        });
+        var back = S.el("button", { type: "button", "data-act": "prev", title: "Предыдущий вариант" });
+        back.innerHTML = "‹";
+        var label = S.el("span", { text: at + " / " + variants.length });
+        var fwd = S.el("button", { type: "button", "data-act": "next", title: "Следующий вариант" });
+        fwd.innerHTML = "›";
+        pager.appendChild(back);
+        pager.appendChild(label);
+        pager.appendChild(fwd);
+        acts.appendChild(pager);
+      }
     }
     act("trash", "del", null, S.t("del"));
 
@@ -464,10 +485,13 @@
         ask();
         break;
       case "regen":
-        s.messages = s.messages.slice(0, idx);
-        persist();
-        drawLog();
-        ask();
+        branchFrom(s, idx);
+        break;
+      case "prev":
+        stepVariant(s, m, -1);
+        break;
+      case "next":
+        stepVariant(s, m, 1);
         break;
       case "speak":
         speak(m.text);
@@ -478,6 +502,45 @@
         drawLog();
         break;
     }
+  }
+
+  /* ------------------------------------------------------------ branching */
+  /* Regenerating used to throw the old answer away. Now the answers live
+     side by side as variants of the same turn, and you can walk between
+     them; only the selected one is sent as context. */
+  function branchFrom(session, idx) {
+    var old = session.messages[idx];
+    var group = old.group || S.uid("g");
+    old.group = group;
+
+    /* keep every variant of this turn, drop whatever came after it */
+    var kept = session.messages.slice(0, idx + 1);
+    var siblings = session.messages.slice(idx + 1).filter(function (m) {
+      return m.group === group;
+    });
+    session.messages = kept.concat(siblings);
+    session.messages.forEach(function (m) {
+      if (m.group === group) m.hidden = true;
+    });
+
+    persist();
+    drawLog();
+    ask(group);
+  }
+
+  function variantsOf(session, message) {
+    if (!message.group) return [message];
+    return session.messages.filter(function (m) { return m.group === message.group; });
+  }
+
+  function stepVariant(session, message, dir) {
+    var list = variantsOf(session, message);
+    if (list.length < 2) return;
+    var at = list.indexOf(message);
+    var next = list[(at + dir + list.length) % list.length];
+    list.forEach(function (m) { m.hidden = m !== next; });
+    persist();
+    drawLog();
   }
 
   function scrollDown() {
@@ -530,7 +593,14 @@
     autoGrow(ui.input);
     drawSessions();
     drawLog();
-    ask();
+
+    /* give semantic recall a moment to find what matters before asking */
+    if (global.Memory && Memory.canEmbed()) {
+      setBusy(true);
+      Memory.warm(text).then(ask);
+    } else {
+      ask();
+    }
   }
 
   function buildPayload() {
@@ -542,7 +612,10 @@
     }
     var recalled = (global.Memory && Memory.context(lastUser)) || "";
     if (recalled) persona += "\n\n" + recalled;
+    var code = (global.Codebase && Codebase.context(lastUser)) || "";
+    if (code) persona += "\n\n" + code;
     var history = s.messages
+      .filter(function (m) { return !m.hidden; })
       .filter(function (m) { return m.role === "user" || m.role === "assistant"; })
       .slice(-cfg.contextLimit)
       .map(function (m) { return { role: m.role, content: m.text }; });
@@ -557,7 +630,7 @@
     return { system: persona, messages: history };
   }
 
-  function ask() {
+  function ask(group) {
     var s = current();
     var payload = buildPayload();
     attachments = [];
@@ -570,6 +643,7 @@
       ts: Date.now(),
       model: cfg.provider === "local" ? "offline" : cfg.model
     };
+    if (group) holder.group = group;
     s.messages.push(holder);
     s.updated = Date.now();
 
@@ -856,6 +930,7 @@
       "| `/notes`, `/tasks`, `/files` | открыть панели |",
       "| `/graph` | граф связей заметок |",
       "| `/memory` | что она помнит |",
+      "| `/code` | чтение файлов проекта |",
       "| `запомни: ...` | записать в долгую память |",
       "| `/persona` | настройки Sayumi |",
       "| `/settings` | настройки проекта |",
@@ -916,6 +991,7 @@
         pushSystem("Озвучивание: " + (cfg.tts ? "вкл" : "выкл"));
         return true;
       case "memory": case "память": global.Memory.openWindow(); return true;
+      case "code": case "проект": global.Codebase.openWindow(); return true;
       case "notes": global.Tools.openNotes(); return true;
       case "graph": global.Tools.openGraph(); return true;
       case "tasks": global.Tools.openTasks(); return true;

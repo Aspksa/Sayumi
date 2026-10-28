@@ -663,100 +663,302 @@
   }
 
   /* -------------------------------------------------------------- tasks */
+  var COLUMNS = [
+    { id: "todo", label: "Надо сделать", icon: "note" },
+    { id: "doing", label: "В работе", icon: "refresh" },
+    { id: "done", label: "Готово", icon: "check" }
+  ];
+  var PRIORITY = { low: "низкий", normal: "обычный", high: "важно" };
+
+  /* older tasks only had a done flag; give everything a column and a priority */
+  function normaliseTasks() {
+    var touched = false;
+    tasks.forEach(function (t) {
+      if (!t.col) { t.col = t.done ? "done" : "todo"; touched = true; }
+      if (!t.prio) { t.prio = "normal"; touched = true; }
+      if (t.due === undefined) { t.due = ""; touched = true; }
+    });
+    if (touched) saveTasks();
+  }
+
+  /* Compare calendar days, not timestamps: a task due yesterday at 23:59 is
+     overdue by ten hours, and rounding that by the clock called it "today". */
+  function daysUntil(dateText) {
+    var today = new Date();
+    today.setHours(0, 0, 0, 0);
+    var due = new Date(dateText + "T00:00:00");
+    if (isNaN(due.getTime())) return null;
+    due.setHours(0, 0, 0, 0);
+    return Math.round((due.getTime() - today.getTime()) / 86400000);
+  }
+
+  function dueState(task) {
+    if (!task.due || task.col === "done") return null;
+    var days = daysUntil(task.due);
+    if (days === null) return null;
+    if (days < 0) return { kind: "late", text: "просрочено на " + Math.abs(days) + " дн." };
+    if (days === 0) return { kind: "today", text: "сегодня" };
+    if (days === 1) return { kind: "soon", text: "завтра" };
+    if (days <= 3) return { kind: "soon", text: "через " + days + " дн." };
+    return { kind: "far", text: task.due };
+  }
+
   function openTasks() {
     if (Win.get("tasks")) { Win.get("tasks").focus(); return; }
+    normaliseTasks();
 
     var pane = S.el("div", { class: "pane" });
     var bar = S.el("div", { class: "chat-bar" });
     var input = S.el("input", { class: "search", placeholder: "Новая задача, Enter — добавить" });
-    var sel = S.el("select", { style: "width:120px" });
-    [["all", "Все"], ["open", "Активные"], ["done", "Готовые"]].forEach(function (o) {
-      sel.appendChild(S.el("option", { value: o[0], text: o[1] }));
+    var view = S.el("select", { style: "width:130px" });
+    [["board", "Доска"], ["list", "Список"]].forEach(function (o) {
+      view.appendChild(S.el("option", { value: o[0], text: o[1] }));
     });
+    view.value = S.load("tasks.view", "board");
     var bClear = I.btn("trash", { class: "btn sm ghost danger", label: "Убрать готовые" });
     bar.appendChild(input);
-    bar.appendChild(sel);
+    bar.appendChild(view);
     bar.appendChild(bClear);
 
     var body = S.el("div", { class: "pane-body" });
     pane.appendChild(bar);
     pane.appendChild(body);
 
-    function draw() {
-      body.innerHTML = "";
-      var mode = sel.value;
-      var shown = tasks.filter(function (t) {
-        return mode === "all" || (mode === "done" ? t.done : !t.done);
+    function taskCard(task) {
+      var node = S.el("div", {
+        class: "task" + (task.col === "done" ? " done" : "") + " prio-" + task.prio,
+        draggable: "true",
+        "data-id": task.id
       });
-      var stat = S.el("div", { class: "note tiny" });
-      stat.textContent = "Всего " + tasks.length +
-        " · активных " + tasks.filter(function (t) { return !t.done; }).length;
-      body.appendChild(stat);
 
-      if (!shown.length) {
-        body.appendChild(S.el("div", { class: "empty", text: "Список пуст" }));
-        return;
-      }
-      var list = S.el("div", { class: "list" });
-      shown.forEach(function (t) {
-        var item = S.el("div", { class: "item" + (t.done ? " done" : "") });
-        var cb = S.el("span", { class: "cb" }, t.done ? I.svg("check") : "");
-        cb.addEventListener("click", function () {
-          t.done = !t.done;
-          t.updated = Date.now();
+      var text = S.el("div", { class: "t-text", text: task.text });
+      text.addEventListener("dblclick", function () {
+        Dialog.prompt({ title: "Изменить задачу", value: task.text }).then(function (v) {
+          if (!v) return;
+          task.text = v;
           saveTasks();
           draw();
         });
-        var text = S.el("span", { class: "grow", text: t.text });
-        text.addEventListener("dblclick", function () {
-          Dialog.prompt({ title: "Изменить задачу", value: t.text }).then(function (v) {
-            if (!v) return;
-            t.text = v;
-            saveTasks();
-            draw();
-          });
+      });
+      node.appendChild(text);
+
+      var foot = S.el("div", { class: "t-foot" });
+      var state = dueState(task);
+      if (state) {
+        foot.appendChild(S.el("span", { class: "t-due " + state.kind, text: state.text }));
+      } else if (task.due) {
+        foot.appendChild(S.el("span", { class: "t-due far", text: task.due }));
+      }
+      if (task.prio !== "normal") {
+        foot.appendChild(S.el("span", { class: "t-prio", text: PRIORITY[task.prio] }));
+      }
+      foot.appendChild(S.el("span", { class: "grow" }));
+
+      var bDate = I.btn("refresh", { title: "Срок" });
+      bDate.addEventListener("click", function () {
+        Dialog.prompt({
+          title: "Срок задачи",
+          text: "Дата в виде 2026-11-20. Пусто — убрать срок.",
+          value: task.due || "",
+          allowEmpty: true
+        }).then(function (v) {
+          if (v === null) return;
+          task.due = (v || "").trim();
+          saveTasks();
+          draw();
         });
-        var toChat = I.btn("arrowRight", { title: "Обсудить в чате" });
-        toChat.addEventListener("click", function () {
-          Chat.openWindow();
-          setTimeout(function () {
-            var box = S.qs(".composer textarea");
-            if (box) { box.value = "Помоги с задачей: " + t.text; box.focus(); }
-          }, 120);
+      });
+      var bPrio = I.btn("star", { title: "Важность" });
+      bPrio.addEventListener("click", function () {
+        var order = ["low", "normal", "high"];
+        task.prio = order[(order.indexOf(task.prio) + 1) % order.length];
+        saveTasks();
+        draw();
+      });
+      var bChat = I.btn("arrowRight", { title: "Обсудить в чате" });
+      bChat.addEventListener("click", function () {
+        Chat.openWindow();
+        setTimeout(function () {
+          var box = S.qs(".composer textarea");
+          if (box) { box.value = "Помоги с задачей: " + task.text; box.focus(); }
+        }, 120);
+      });
+      var bDel = I.btn("close", { class: "btn sm ghost danger", title: "Удалить" });
+      bDel.addEventListener("click", function () {
+        tasks = tasks.filter(function (o) { return o.id !== task.id; });
+        saveTasks();
+        draw();
+      });
+      [bDate, bPrio, bChat, bDel].forEach(function (b) { foot.appendChild(b); });
+      node.appendChild(foot);
+
+      node.addEventListener("dragstart", function (e) {
+        e.dataTransfer.setData("text/plain", task.id);
+        node.classList.add("dragging");
+      });
+      node.addEventListener("dragend", function () { node.classList.remove("dragging"); });
+      return node;
+    }
+
+    function drawBoard() {
+      var board = S.el("div", { class: "board" });
+      COLUMNS.forEach(function (col) {
+        var items = tasks.filter(function (t) { return t.col === col.id; });
+        var column = S.el("div", { class: "column", "data-col": col.id });
+        var head = S.el("header");
+        head.innerHTML = I.svg(col.icon) + "<b>" + col.label + "</b>" +
+          '<span class="count">' + items.length + "</span>";
+        column.appendChild(head);
+
+        var slot = S.el("div", { class: "slot" });
+        items
+          .sort(function (a, b) {
+            var rank = { high: 0, normal: 1, low: 2 };
+            if (rank[a.prio] !== rank[b.prio]) return rank[a.prio] - rank[b.prio];
+            if (!!a.due !== !!b.due) return a.due ? -1 : 1;
+            return (a.due || "").localeCompare(b.due || "");
+          })
+          .forEach(function (t) { slot.appendChild(taskCard(t)); });
+        if (!items.length) slot.appendChild(S.el("div", { class: "empty tiny", text: "пусто" }));
+
+        slot.addEventListener("dragover", function (e) {
+          e.preventDefault();
+          column.classList.add("over");
         });
-        var x = I.btn("close", { class: "btn sm ghost danger", title: "Удалить" });
-        x.addEventListener("click", function () {
-          tasks = tasks.filter(function (o) { return o.id !== t.id; });
+        slot.addEventListener("dragleave", function () { column.classList.remove("over"); });
+        slot.addEventListener("drop", function (e) {
+          e.preventDefault();
+          column.classList.remove("over");
+          var id = e.dataTransfer.getData("text/plain");
+          var task = tasks.filter(function (t) { return t.id === id; })[0];
+          if (!task) return;
+          task.col = col.id;
+          task.done = col.id === "done";
+          task.updated = Date.now();
+          saveTasks();
+          draw();
+        });
+
+        column.appendChild(slot);
+        board.appendChild(column);
+      });
+      body.appendChild(board);
+    }
+
+    function drawList() {
+      var open = tasks.filter(function (t) { return t.col !== "done"; });
+      var done = tasks.filter(function (t) { return t.col === "done"; });
+      var list = S.el("div", { class: "list" });
+      open.concat(done).forEach(function (t) {
+        var item = S.el("div", { class: "item" + (t.col === "done" ? " done" : "") });
+        var cb = S.el("span", { class: "cb" }, t.col === "done" ? I.svg("check") : "");
+        cb.addEventListener("click", function () {
+          t.col = t.col === "done" ? "todo" : "done";
+          t.done = t.col === "done";
           saveTasks();
           draw();
         });
         item.appendChild(cb);
-        item.appendChild(text);
-        item.appendChild(toChat);
-        item.appendChild(x);
+        item.appendChild(S.el("span", { class: "grow", text: t.text }));
+        var state = dueState(t);
+        if (state) item.appendChild(S.el("span", { class: "t-due " + state.kind, text: state.text }));
         list.appendChild(item);
       });
+      if (!tasks.length) list.appendChild(S.el("div", { class: "empty", text: "Список пуст" }));
       body.appendChild(list);
+    }
+
+    function draw() {
+      body.innerHTML = "";
+      var late = tasks.filter(function (t) {
+        var st = dueState(t);
+        return st && st.kind === "late";
+      }).length;
+      var soon = tasks.filter(function (t) {
+        var st = dueState(t);
+        return st && (st.kind === "today" || st.kind === "soon");
+      }).length;
+
+      var stat = S.el("div", { class: "note tiny" });
+      stat.textContent = "всего " + tasks.length +
+        " · активных " + tasks.filter(function (t) { return t.col !== "done"; }).length +
+        (soon ? " · скоро " + soon : "") +
+        (late ? " · просрочено " + late : "");
+      body.appendChild(stat);
+
+      if (view.value === "board") drawBoard();
+      else drawList();
     }
 
     input.addEventListener("keydown", function (e) {
       if (e.key !== "Enter") return;
       var v = input.value.trim();
       if (!v) return;
-      tasks.unshift({ id: S.uid("t"), text: v, done: false, updated: Date.now() });
+      /* "купить хлеб !важно 2026-11-20" sets priority and date inline */
+      var prio = "normal";
+      if (/!важно|!high/i.test(v)) { prio = "high"; v = v.replace(/!важно|!high/ig, ""); }
+      if (/!потом|!low/i.test(v)) { prio = "low"; v = v.replace(/!потом|!low/ig, ""); }
+      var due = "";
+      var date = v.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+      if (date) { due = date[1]; v = v.replace(date[1], ""); }
+      tasks.unshift({
+        id: S.uid("t"), text: v.trim().replace(/\s+/g, " "),
+        col: "todo", done: false, prio: prio, due: due, updated: Date.now()
+      });
       input.value = "";
       saveTasks();
       draw();
     });
-    sel.addEventListener("change", draw);
-    bClear.addEventListener("click", function () {
-      tasks = tasks.filter(function (t) { return !t.done; });
-      saveTasks();
+    view.addEventListener("change", function () {
+      S.save("tasks.view", view.value);
       draw();
+    });
+    bClear.addEventListener("click", function () {
+      var count = tasks.filter(function (t) { return t.col === "done"; }).length;
+      if (!count) { S.toast("Готовых задач нет", "bad"); return; }
+      Dialog.confirm({
+        title: "Убрать готовые",
+        text: "Будет удалено задач: " + count + ".",
+        ok: "Убрать", danger: true
+      }).then(function (yes) {
+        if (!yes) return;
+        tasks = tasks.filter(function (t) { return t.col !== "done"; });
+        saveTasks();
+        draw();
+      });
     });
 
     draw();
-    Win.create({ id: "tasks", title: S.t("tasks"), width: 560, height: 480, content: pane });
+    Win.create({ id: "tasks", title: S.t("tasks"), width: 820, height: 560, content: pane });
+  }
+
+  /* ------------------------------------------------------- reminders --- */
+  /* A quiet check that surfaces what is due, at most once per task per day */
+  function checkDue() {
+    normaliseTasks();
+    var seen = S.load("tasks.reminded", {});
+    var today = new Date().toISOString().slice(0, 10);
+    var hits = [];
+    tasks.forEach(function (t) {
+      var state = dueState(t);
+      if (!state || state.kind === "far") return;
+      if (seen[t.id] === today) return;
+      seen[t.id] = today;
+      hits.push({ task: t, state: state });
+    });
+    if (!hits.length) return;
+    S.save("tasks.reminded", seen);
+
+    hits.slice(0, 3).forEach(function (hit, i) {
+      setTimeout(function () {
+        S.toast((hit.state.kind === "late" ? "Просрочено: " : "Срок: ") + hit.task.text,
+          hit.state.kind === "late" ? "bad" : "", 5200);
+      }, 900 + i * 1400);
+    });
+    if (global.Avatar) {
+      Avatar.say(hits.length === 1 ? "Срок: " + hits[0].task.text
+                                   : "Подходят сроки у " + hits.length + " задач", 5200);
+    }
   }
 
   /* -------------------------------------------------------------- files */
@@ -884,6 +1086,8 @@
 
   global.Tools = {
     openNotes: openNotes,
+    checkDue: checkDue,
+    dueState: dueState,
     openGraph: openGraph,
     openTasks: openTasks,
     openFiles: openFiles,

@@ -70,6 +70,7 @@
         { label: S.t("files"), act: function () { Tools.openFiles(); } },
         { label: "Граф заметок", act: function () { Tools.openGraph(); } },
         { label: "Память", act: function () { Memory.openWindow(); } },
+        { label: "Проект", act: function () { Codebase.openWindow(); } },
         { sep: true },
         { label: S.t("persona"), act: function () { Persona.openWindow(); } },
         { label: S.t("settings"), act: function () { Settings.openWindow(); } }
@@ -204,6 +205,10 @@
       var brandName = S.qs("#brand-name");
       if (brandName) brandName.textContent = Persona.get().name || "Sayumi";
     });
+
+    /* deadlines are checked at start and then on a slow timer */
+    setTimeout(function () { Tools.checkDue(); }, 2400);
+    setInterval(function () { Tools.checkDue(); }, 30 * 60 * 1000);
 
     S.probeServer();
     setInterval(function () { S.probeServer(); }, 60000);

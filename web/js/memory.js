@@ -41,7 +41,10 @@
     distill: true,
     adapt: true,
     recall: 8,
-    cooldown: 6
+    cooldown: 6,
+    semantic: false,
+    embedModel: "",
+    reflectEvery: 40
   }, S.load("memory.settings", {}));
 
   var index = null;            /* lazily rebuilt inverted index */
@@ -337,17 +340,125 @@
     return out.slice(0, limit || 10).map(function (x) { return x.f; });
   }
 
+  /* ------------------------------------------------------------ vectors */
+  /* Keyword search cannot tell that "на чём я программирую" and "пишет на
+     Python" are the same question. When an embedding model is configured the
+     facts are vectorised once and compared by cosine, blended with the
+     keyword score so a miss on one side is covered by the other. */
+  function cosine(a, b) {
+    if (!a || !b || a.length !== b.length) return 0;
+    var dot = 0, na = 0, nb = 0;
+    for (var i = 0; i < a.length; i++) {
+      dot += a[i] * b[i];
+      na += a[i] * a[i];
+      nb += b[i] * b[i];
+    }
+    if (!na || !nb) return 0;
+    return dot / (Math.sqrt(na) * Math.sqrt(nb));
+  }
+
+  function canEmbed() {
+    return settings.enabled && settings.semantic && settings.embedModel &&
+      S.server.up && Chat.config.provider !== "local";
+  }
+
+  function embedRequest(texts) {
+    var cfg = Chat.config;
+    return S.api("/api/embed", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        provider: cfg.provider, baseUrl: cfg.baseUrl, apiKey: cfg.apiKey,
+        model: settings.embedModel, input: texts
+      })
+    });
+  }
+
+  var embedding = false;
+
+  /* vectorise whatever is still missing one, in small batches */
+  function embedPending(onDone) {
+    if (!canEmbed() || embedding) { if (onDone) onDone(0); return; }
+    var pending = db.facts.filter(function (f) { return !f.vec; }).slice(0, 32);
+    if (!pending.length) { if (onDone) onDone(0); return; }
+    embedding = true;
+    embedRequest(pending.map(function (f) { return f.text; }))
+      .then(function (res) {
+        embedding = false;
+        if (!res.ok) {
+          note("векторы не получились: " + (res.error || "?"), "embed");
+          settings.semantic = false;
+          saveSettings();
+          S.toast("Семантический поиск выключен: " + (res.error || "ошибка"), "bad");
+          if (onDone) onDone(0);
+          return;
+        }
+        pending.forEach(function (f, i) {
+          if (res.vectors[i]) f.vec = res.vectors[i];
+        });
+        note("векторизовано записей: " + pending.length, "embed");
+        save();
+        if (onDone) onDone(pending.length);
+      })
+      .catch(function (e) {
+        embedding = false;
+        note("векторы не получились: " + e.message, "embed");
+        if (onDone) onDone(0);
+      });
+  }
+
+  function semanticSearch(query, limit) {
+    return embedRequest([query]).then(function (res) {
+      if (!res.ok || !res.vectors.length) return [];
+      var q = res.vectors[0];
+      return db.facts
+        .filter(function (f) { return f.vec; })
+        .map(function (f) { return { f: f, s: cosine(q, f.vec) }; })
+        .filter(function (x) { return x.s > 0.2; })
+        .sort(function (a, b) { return b.s - a.s; })
+        .slice(0, limit || 10)
+        .map(function (x) { return x.f; });
+    }).catch(function () { return []; });
+  }
+
   /* --------------------------------------------------- prompt injection */
+  /* filled by the background pass before a request, so context() stays sync */
+  var semanticHint = [];
+
+  function warm(query) {
+    if (!canEmbed()) { semanticHint = []; return Promise.resolve(); }
+    return new Promise(function (resolve) {
+      embedPending(function () {
+        semanticSearch(query, settings.recall).then(function (hits) {
+          semanticHint = hits;
+          resolve();
+        });
+      });
+    });
+  }
+
   function context(query) {
     if (!settings.enabled || !db.facts.length) return "";
-    var picked = search(query, settings.recall);
+    var picked = [];
+    var seenId = {};
+    /* vector hits first, they understood the question rather than matched it */
+    semanticHint.forEach(function (f) {
+      if (picked.length >= settings.recall || seenId[f.id]) return;
+      seenId[f.id] = 1;
+      picked.push(f);
+    });
+    search(query, settings.recall).forEach(function (f) {
+      if (picked.length >= settings.recall || seenId[f.id]) return;
+      seenId[f.id] = 1;
+      picked.push(f);
+    });
+    semanticHint = [];
 
     /* keyword retrieval can miss entirely - "программирую" shares no stem with
        "пишу на Python". Top up with the memories that matter most anyway, so
        pinned and heavy facts are in front of her on every turn. */
     if (picked.length < settings.recall) {
-      var seen = {};
-      picked.forEach(function (f) { seen[f.id] = 1; });
+      var seen = seenId;
       db.facts.slice()
         .sort(function (a, b) { return staticScore(b) - staticScore(a); })
         .forEach(function (f) {
@@ -477,6 +588,105 @@
         S.toast("Запомнила " + added + " новых фактов", "ok");
       }
     }).catch(function () {});
+  }
+
+  /* --------------------------------------------------------- reflection */
+  /* Every so often she rereads what she knows and tidies it: merges the
+     repetitive, drops what a later fact contradicts, and writes down the
+     generalisation. Only ever applied to unpinned entries. */
+  var reflecting = false;
+
+  function reflect(manual) {
+    if (reflecting) return Promise.resolve(false);
+    var cfg = Chat.config;
+    if (!settings.enabled || cfg.provider === "local" || !S.server.up) {
+      if (manual) S.toast("Нужна подключённая модель и локальный сервер", "bad");
+      return Promise.resolve(false);
+    }
+    var pool = db.facts.filter(function (f) { return !f.pinned; });
+    if (pool.length < 6) {
+      if (manual) S.toast("Пока слишком мало записей для осмысления", "bad");
+      return Promise.resolve(false);
+    }
+
+    reflecting = true;
+    var numbered = pool.slice(0, 80).map(function (f, i) { return (i + 1) + ". " + f.text; }).join("\n");
+
+    return S.api("/api/llm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        provider: cfg.provider, model: cfg.model, baseUrl: cfg.baseUrl,
+        apiKey: cfg.apiKey, stream: false, temperature: 0, maxTokens: 900,
+        system: "Ты наводишь порядок в списке фактов о собеседнике и его проекте. " +
+          "Верни ТОЛЬКО объект JSON вида " +
+          '{"drop":[номера],"merge":[{"into":"новая формулировка","from":[номера]}],"insight":"одно наблюдение"}. ' +
+          "В drop — номера записей, которые устарели, противоречат более новым или бессмысленны. " +
+          "В merge — группы повторяющихся записей и их общая формулировка. " +
+          "insight — короткий вывод о собеседнике, которого в списке ещё нет, или пустая строка. " +
+          "Ничего не выдумывай сверх списка.",
+        messages: [{ role: "user", content: numbered }]
+      })
+    }).then(function (res) {
+      reflecting = false;
+      if (!res.ok || !res.text) {
+        if (manual) S.toast("Осмыслить не вышло: " + (res.error || "?"), "bad");
+        return false;
+      }
+      var raw = res.text.trim().replace(/^```(?:json)?/, "").replace(/```$/, "").trim();
+      var plan;
+      try { plan = JSON.parse(raw); } catch (e) {
+        if (manual) S.toast("Модель ответила не по форме", "bad");
+        return false;
+      }
+
+      var dropped = 0, merged = 0;
+      var byNumber = function (n) { return pool[Number(n) - 1]; };
+
+      (plan.merge || []).slice(0, 20).forEach(function (group) {
+        if (!group || !group.into || !Array.isArray(group.from)) return;
+        var victims = group.from.map(byNumber).filter(function (f) { return f && !f.pinned; });
+        if (victims.length < 2) return;
+        var weight = victims.reduce(function (sum, f) { return sum + (f.weight || 1); }, 0);
+        victims.forEach(function (f) {
+          db.facts = db.facts.filter(function (x) { return x !== f; });
+        });
+        db.facts.push({
+          id: S.uid("f"), text: String(group.into).slice(0, 400), kind: "fact",
+          tags: [], weight: Math.min(5, weight), pinned: false,
+          created: Date.now(), updated: Date.now(), uses: 0, lastUse: 0,
+          src: "после осмысления"
+        });
+        merged += victims.length;
+      });
+
+      (plan.drop || []).slice(0, 40).forEach(function (n) {
+        var f = byNumber(n);
+        if (!f || f.pinned) return;
+        if (db.facts.indexOf(f) < 0) return;
+        db.facts = db.facts.filter(function (x) { return x !== f; });
+        dropped++;
+      });
+
+      if (plan.insight && String(plan.insight).trim().length > 8) {
+        add(String(plan.insight).trim(), { kind: "summary", weight: 2, src: "вывод после осмысления" });
+      }
+
+      db.growth.reflections = (db.growth.reflections || 0) + 1;
+      db.growth.sinceReflect = 0;
+      note("осмыслила память: объединила " + merged + ", убрала " + dropped, "reflect");
+      save();
+      if (merged || dropped) {
+        S.toast("Осмыслила память: −" + (merged + dropped) + " записей", "ok");
+      } else if (manual) {
+        S.toast("Память уже в порядке", "ok");
+      }
+      return true;
+    }).catch(function (e) {
+      reflecting = false;
+      if (manual) S.toast("Ошибка: " + e.message, "bad");
+      return false;
+    });
   }
 
   /* summarise a conversation so an old session stays recallable cheaply */
@@ -642,6 +852,11 @@
       sinceDistill = 0;
       distill(session);
     }
+    db.growth.sinceReflect = (db.growth.sinceReflect || 0) + 1;
+    if (settings.reflectEvery > 0 && db.growth.sinceReflect >= settings.reflectEvery) {
+      db.growth.sinceReflect = 0;
+      reflect(false);
+    }
     save();
   }
 
@@ -663,6 +878,8 @@
     var pages = {
       facts:   { label: "Факты",    note: "что она помнит",   icon: "note",   draw: drawFacts },
       profile: { label: "Профиль",  note: "портрет собеседника", icon: "user", draw: drawProfile },
+      graph:   { label: "Связи",    note: "карта того, что знает", icon: "graph", draw: drawGraph },
+      time:    { label: "Хроника",  note: "что и когда узнала", icon: "refresh", draw: drawTimeline },
       growth:  { label: "Развитие", note: "опыт и подстройка", icon: "sparkle", draw: drawGrowth },
       log:     { label: "Журнал",   note: "что происходило",  icon: "task",   draw: drawLog }
     };
@@ -876,6 +1093,284 @@
     }
   }
 
+  /* --------------------------------------------------------- graph page */
+  /* Facts become nodes; two facts are tied when they share a stem. The same
+     spring layout as the notes graph, so the two read as one idea. */
+  function drawGraph(root, redraw) {
+    var box = card(root, "Карта памяти",
+      "записи связаны общими словами, цвет — по виду", "graph");
+
+    if (db.facts.length < 2) {
+      box.appendChild(S.el("div", { class: "empty", text: "Нужно хотя бы две записи" }));
+      return;
+    }
+
+    var holder = S.el("div", {
+      style: "position:relative;height:420px;border:var(--bw) solid var(--line-soft);" +
+             "border-radius:var(--r-m);overflow:hidden;background:var(--bg-0)"
+    });
+    var canvas = S.el("canvas", { style: "position:absolute;inset:0;width:100%;height:100%;cursor:grab" });
+    var label = S.el("div", {
+      class: "note tiny",
+      style: "position:absolute;left:12px;right:12px;bottom:10px;pointer-events:none;" +
+             "text-align:center;color:var(--acc)"
+    });
+    holder.appendChild(canvas);
+    holder.appendChild(label);
+    box.appendChild(holder);
+
+    var KIND_HUE = {
+      user: "#6f94c0", pref: "#c9a227", project: "#5f9c7b",
+      decision: "#b4674a", summary: "#8a6fb5", fact: "#a4acb8"
+    };
+
+    var ctx = canvas.getContext("2d");
+    var nodes = db.facts.slice(0, 90).map(function (f, i) {
+      var angle = (i / Math.min(90, db.facts.length)) * Math.PI * 2;
+      return {
+        f: f,
+        x: Math.cos(angle) * 170 + (Math.random() - 0.5) * 30,
+        y: Math.sin(angle) * 170 + (Math.random() - 0.5) * 30,
+        vx: 0, vy: 0, deg: 0, keys: new Set(tokens(f.text))
+      };
+    });
+
+    var edges = [];
+    for (var i = 0; i < nodes.length; i++) {
+      for (var j = i + 1; j < nodes.length; j++) {
+        var shared = 0;
+        nodes[i].keys.forEach(function (k) { if (nodes[j].keys.has(k)) shared++; });
+        if (shared >= 2) {
+          edges.push({ a: nodes[i], b: nodes[j], w: shared });
+          nodes[i].deg++; nodes[j].deg++;
+        }
+      }
+    }
+    label.textContent = "записей " + nodes.length + " · связей " + edges.length;
+
+    var centre = { x: 0, y: 0 };
+    var frames = 0, raf = null, hover = null, drag = null, near = null;
+
+    function step() {
+      for (var i = 0; i < nodes.length; i++) {
+        var a = nodes[i];
+        a.vx -= a.x * 0.0018;
+        a.vy -= a.y * 0.0018;
+        for (var j = i + 1; j < nodes.length; j++) {
+          var b = nodes[j];
+          var dx = b.x - a.x, dy = b.y - a.y;
+          var d2 = dx * dx + dy * dy || 0.01;
+          var d = Math.sqrt(d2);
+          var push = 2200 / d2;
+          a.vx -= (dx / d) * push; a.vy -= (dy / d) * push;
+          b.vx += (dx / d) * push; b.vy += (dy / d) * push;
+        }
+      }
+      edges.forEach(function (e) {
+        var dx = e.b.x - e.a.x, dy = e.b.y - e.a.y;
+        var d = Math.sqrt(dx * dx + dy * dy) || 0.01;
+        var force = (d - 100) * 0.011;
+        e.a.vx += (dx / d) * force; e.a.vy += (dy / d) * force;
+        e.b.vx -= (dx / d) * force; e.b.vy -= (dy / d) * force;
+      });
+      nodes.forEach(function (n) {
+        if (n === drag) { n.vx = n.vy = 0; return; }
+        n.vx *= 0.82; n.vy *= 0.82;
+        n.x += n.vx; n.y += n.vy;
+      });
+      var sx = 0, sy = 0;
+      nodes.forEach(function (n) { sx += n.x; sy += n.y; });
+      centre.x += (sx / nodes.length - centre.x) * 0.08;
+      centre.y += (sy / nodes.length - centre.y) * 0.08;
+    }
+
+    function paint() {
+      var ratio = window.devicePixelRatio || 1;
+      var w = holder.clientWidth, h = holder.clientHeight;
+      if (canvas.width !== w * ratio || canvas.height !== h * ratio) {
+        canvas.width = w * ratio; canvas.height = h * ratio;
+      }
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+      ctx.save();
+      ctx.translate(w / 2, h / 2);
+      ctx.scale(0.8, 0.8);
+      ctx.translate(-centre.x, -centre.y);
+
+      edges.forEach(function (e) {
+        var lit = near && near.has(e.a) && near.has(e.b);
+        ctx.beginPath();
+        ctx.moveTo(e.a.x, e.a.y);
+        ctx.lineTo(e.b.x, e.b.y);
+        ctx.strokeStyle = lit ? "rgba(var(--acc-rgb),1)" : "#3a3a44";
+        ctx.globalAlpha = near ? (lit ? 0.8 : 0.08) : Math.min(0.5, 0.18 + e.w * 0.08);
+        ctx.lineWidth = lit ? 1.6 : 1;
+        ctx.stroke();
+      });
+      ctx.globalAlpha = 1;
+
+      nodes.forEach(function (n) {
+        var r = 4 + Math.min(7, n.deg * 1.2) + (n.f.pinned ? 2 : 0);
+        var dim = near && !near.has(n) ? 0.18 : 1;
+        ctx.globalAlpha = dim;
+        ctx.beginPath();
+        ctx.ellipse(n.x + 1, n.y + r, r * 0.9, r * 0.3, 0, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(0,0,0,.5)";
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+        ctx.fillStyle = KIND_HUE[n.f.kind] || "#a4acb8";
+        ctx.shadowColor = ctx.fillStyle;
+        ctx.shadowBlur = n === hover ? 18 : 8;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        if (n.f.pinned) {
+          ctx.beginPath();
+          ctx.arc(n.x, n.y, r + 3, 0, Math.PI * 2);
+          ctx.strokeStyle = "#e0bb45";
+          ctx.lineWidth = 1.2;
+          ctx.stroke();
+        }
+      });
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+
+    function loop() {
+      if (frames < 380 || drag) { step(); frames++; }
+      paint();
+      raf = requestAnimationFrame(loop);
+    }
+    loop();
+
+    function at(e) {
+      var rect = canvas.getBoundingClientRect();
+      var x = (e.clientX - rect.left - rect.width / 2) / 0.8 + centre.x;
+      var y = (e.clientY - rect.top - rect.height / 2) / 0.8 + centre.y;
+      var best = null, bestD = 18;
+      nodes.forEach(function (n) {
+        var d = Math.hypot(n.x - x, n.y - y);
+        if (d < bestD) { bestD = d; best = n; }
+      });
+      return { x: x, y: y, node: best };
+    }
+
+    canvas.addEventListener("pointermove", function (e) {
+      var hit = at(e);
+      if (drag) { drag.x = hit.x; drag.y = hit.y; return; }
+      hover = hit.node;
+      if (hover) {
+        near = new Set([hover]);
+        edges.forEach(function (edge) {
+          if (edge.a === hover) near.add(edge.b);
+          if (edge.b === hover) near.add(edge.a);
+        });
+        label.textContent = hover.f.text;
+      } else {
+        near = null;
+        label.textContent = "записей " + nodes.length + " · связей " + edges.length;
+      }
+      canvas.style.cursor = hover ? "pointer" : "grab";
+    });
+    canvas.addEventListener("pointerdown", function (e) {
+      var hit = at(e);
+      if (hit.node) { drag = hit.node; canvas.setPointerCapture(e.pointerId); }
+    });
+    canvas.addEventListener("pointerup", function (e) {
+      try { canvas.releasePointerCapture(e.pointerId); } catch (err) {}
+      drag = null;
+    });
+    canvas.addEventListener("pointerleave", function () {
+      near = null; hover = null;
+      label.textContent = "записей " + nodes.length + " · связей " + edges.length;
+    });
+
+    var legend = S.el("div", { class: "inline", style: "margin-top:12px" });
+    Object.keys(KIND_LABEL).forEach(function (kind) {
+      var chip = S.el("span", { class: "chip" });
+      var dot = S.el("i", {
+        style: "width:8px;height:8px;border-radius:50%;display:inline-block;background:" +
+               (KIND_HUE[kind] || "#a4acb8")
+      });
+      chip.appendChild(dot);
+      chip.appendChild(S.el("span", { text: KIND_LABEL[kind] }));
+      legend.appendChild(chip);
+    });
+    box.appendChild(legend);
+
+    /* the window redraws on every memory change, so the loop must be stopped */
+    var win = Win.get("memory");
+    if (win) {
+      var stop = function () { cancelAnimationFrame(raf); };
+      holder.addEventListener("DOMNodeRemoved", stop);
+      var guard = setInterval(function () {
+        if (!document.body.contains(canvas)) { stop(); clearInterval(guard); }
+      }, 1200);
+    }
+  }
+
+  /* ------------------------------------------------------ timeline page */
+  function drawTimeline(root, redraw) {
+    var box = card(root, "Хроника знаний",
+      "что она узнала и когда; ползунок показывает память на дату", "refresh");
+
+    if (!db.facts.length) {
+      box.appendChild(S.el("div", { class: "empty", text: "Пока нечего вспоминать" }));
+      return;
+    }
+
+    var sorted = db.facts.slice().sort(function (a, b) { return a.created - b.created; });
+    var first = sorted[0].created;
+    var last = sorted[sorted.length - 1].created;
+    var span = Math.max(1, last - first);
+
+    var row = S.el("div", { class: "row" });
+    row.appendChild(S.el("div", { class: "lab", text: "Память на момент" }));
+    var ctl = S.el("div", { class: "ctl", style: "flex:1" });
+    var slider = S.el("input", { type: "range", min: 0, max: 100, value: 100, style: "width:100%" });
+    var when = S.el("span", { class: "val", style: "min-width:120px", text: S.dateTime(last) });
+    ctl.appendChild(slider);
+    ctl.appendChild(when);
+    row.appendChild(ctl);
+    box.appendChild(row);
+
+    var count = S.el("div", { class: "note tiny" });
+    var list = S.el("div", { class: "list" });
+    box.appendChild(count);
+    box.appendChild(list);
+
+    function paint() {
+      var cut = first + span * (Number(slider.value) / 100);
+      when.textContent = S.dateTime(cut);
+      var known = sorted.filter(function (f) { return f.created <= cut; });
+      count.textContent = "знала записей: " + known.length + " из " + sorted.length;
+
+      list.innerHTML = "";
+      var byDay = {};
+      known.forEach(function (f) {
+        var day = S.dateTime(f.created).slice(0, 10);
+        (byDay[day] = byDay[day] || []).push(f);
+      });
+      Object.keys(byDay).sort().reverse().slice(0, 12).forEach(function (day) {
+        var head = S.el("div", {
+          class: "tiny gold",
+          style: "margin:10px 0 2px;letter-spacing:.1em;text-transform:uppercase"
+        });
+        head.textContent = day + "  ·  " + byDay[day].length;
+        list.appendChild(head);
+        byDay[day].slice(0, 10).forEach(function (f) {
+          var item = S.el("div", { class: "item" });
+          item.appendChild(S.el("span", { class: "tiny muted", style: "min-width:46px", text: S.time(f.created) }));
+          item.appendChild(S.el("span", { class: "grow", style: "white-space:normal", text: f.text }));
+          item.appendChild(S.el("span", { class: "tiny muted", text: KIND_LABEL[f.kind] || f.kind }));
+          list.appendChild(item);
+        });
+      });
+    }
+    slider.addEventListener("input", paint);
+    paint();
+  }
+
   function drawGrowth(root, redraw) {
     var p = levelProgress();
     var box = card(root, "Уровень " + p.lv, "опыт накапливается от общения и работы", "sparkle");
@@ -892,6 +1387,23 @@
     box.appendChild(bar);
     box.appendChild(S.el("div", { class: "note tiny",
       text: p.have + " / " + p.need + " опыта до уровня " + (p.lv + 1) }));
+
+    var think = card(root, "Осмысление",
+      "раз в " + Memory.settings.reflectEvery + " ответов она пересматривает память", "refresh");
+    think.appendChild(S.el("div", { class: "note tiny",
+      text: "Объединяет повторы, убирает устаревшее и записывает вывод. " +
+            "Закреплённое не трогает. Осмыслений: " + (db.growth.reflections || 0) }));
+    var bThink = S.el("button", { class: "btn primary", text: "Осмыслить сейчас" });
+    bThink.addEventListener("click", function () {
+      bThink.disabled = true;
+      bThink.textContent = "Думает...";
+      reflect(true).then(function () {
+        bThink.disabled = false;
+        bThink.textContent = "Осмыслить сейчас";
+        redraw();
+      });
+    });
+    think.appendChild(S.el("div", { class: "inline", style: "margin-top:10px" })).appendChild(bThink);
 
     var stats = card(root, "Что она заметила", "выводы из вашей переписки", "search");
     var list = S.el("div", { class: "list" });
@@ -966,6 +1478,8 @@
     setSettings: function (patch) { Object.assign(settings, patch); saveSettings(); },
     add: add, remove: remove, update: update, search: search, context: context,
     onUser: onUser, onReply: onReply, distill: distill,
+    reflect: reflect, warm: warm, embedPending: embedPending, cosine: cosine,
+    canEmbed: canEmbed,
     insights: insights, profile: profile, level: level, levelProgress: levelProgress,
     undoTuning: undoTuning, tokensOf: tokens,
     wipe: function () {

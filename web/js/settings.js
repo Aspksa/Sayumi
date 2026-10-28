@@ -665,6 +665,57 @@
       rowRange(sec, "Как часто звать модель", ms.cooldown, 2, 20, 1, function (v) {
         Memory.setSettings({ cooldown: v });
       }, " ответов");
+
+      var secSem = section(root, "Поиск по смыслу",
+        "Векторы вместо ключевых слов: поймёт вопрос, а не слова в нём", "search");
+
+      rowSwitch(secSem, "Семантический поиск", ms.semantic, function (v) {
+        Memory.setSettings({ semantic: v });
+        if (v) Memory.embedPending(function (n) {
+          S.toast(n ? "Векторизовано записей: " + n : "Нечего векторизовать", "ok");
+        });
+        redraw();
+      }, "Нужна модель эмбеддингов и запущенный сервер");
+
+      if (ms.semantic) {
+        var embedInput = rowText(secSem, "Модель эмбеддингов", ms.embedModel,
+          function (v) { Memory.setSettings({ embedModel: v.trim() }); });
+        embedInput.placeholder = "например text-embedding-3-small";
+        embedInput.style.minWidth = "240px";
+
+        var vecCount = Memory.db.facts.filter(function (f) { return f.vec; }).length;
+        secSem.appendChild(S.el("div", { class: "note tiny", style: "margin:-4px 0 10px",
+          text: "Векторов готово: " + vecCount + " из " + Memory.db.facts.length +
+                (Memory.canEmbed() ? "" : " — сейчас недоступно, нужен сервер и модель") }));
+
+        var bVec = S.el("button", { class: "btn sm", text: "Векторизовать остальное" });
+        bVec.addEventListener("click", function () {
+          bVec.disabled = true;
+          Memory.embedPending(function (n) {
+            bVec.disabled = false;
+            S.toast(n ? "Готово: " + n : "Нечего делать", n ? "ok" : "bad");
+            redraw();
+          });
+        });
+        secSem.appendChild(S.el("div", { class: "inline" })).appendChild(bVec);
+      }
+
+      var secR = section(root, "Осмысление",
+        "Пересматривает память, объединяет повторы и убирает устаревшее", "refresh");
+      rowRange(secR, "Как часто осмысливать", ms.reflectEvery, 0, 120, 10, function (v) {
+        Memory.setSettings({ reflectEvery: v });
+      }, ms.reflectEvery ? " ответов" : " выкл");
+      var bNow = S.el("button", { class: "btn", text: "Осмыслить сейчас" });
+      bNow.addEventListener("click", function () {
+        bNow.disabled = true;
+        bNow.textContent = "Думает...";
+        Memory.reflect(true).then(function () {
+          bNow.disabled = false;
+          bNow.textContent = "Осмыслить сейчас";
+          redraw();
+        });
+      });
+      secR.appendChild(S.el("div", { class: "inline" })).appendChild(bNow);
     }
 
     var secS = section(root, "Состояние", "Накопленное на этом компьютере", "database");

@@ -306,6 +306,156 @@ async function waitFor(url, tries = 40) {
       ok(/пам/.test(text), "память");
     });
 
+    /* --------------------------------------------------------- branching */
+    describe("ветвление диалога");
+    await it("перегенерация сохраняет прежний ответ как вариант", async () => {
+      await page.evaluate(() => {
+        Object.keys(Win.open).forEach((k) => Win.open[k].close());
+        localStorage.setItem("sayumi.chat.sessions", JSON.stringify([{
+          id: "b1", title: "ветка", pinned: false, created: Date.now(), updated: Date.now(),
+          messages: [
+            { id: "u1", role: "user", text: "вопрос", ts: Date.now() },
+            { id: "a1", role: "assistant", text: "первый ответ", ts: Date.now() }
+          ]
+        }]));
+        localStorage.setItem("sayumi.chat.current", JSON.stringify("b1"));
+      });
+      await page.reload({ waitUntil: "networkidle" });
+      await page.waitForTimeout(800);
+      await page.evaluate((port) => {
+        Chat.setConfig({ provider: "cloudru", baseUrl: "http://127.0.0.1:" + port + "/v1",
+                         apiKey: "TEST-KEY", model: "openai/gpt-oss-120b", stream: false });
+        Chat.openWindow();
+      }, FAKE_PORT);
+      await page.waitForTimeout(500);
+      await page.locator('[data-win="chat"] .msg.a [data-act="regen"]').first().click();
+      await page.waitForTimeout(2400);
+
+      const info = await page.evaluate(() => {
+        const s = Chat.exportAll().find((x) => x.id === "b1");
+        const group = s.messages.filter((m) => m.group);
+        return {
+          kept: s.messages.some((m) => m.text === "первый ответ"),
+          variants: group.length,
+          visible: group.filter((m) => !m.hidden).length
+        };
+      });
+      ok(info.kept, "старый ответ не должен исчезнуть");
+      ok(info.variants >= 2, "должно стать минимум два варианта, стало " + info.variants);
+      eq(info.visible, 1, "виден ровно один вариант");
+    });
+
+    await it("переключает варианты стрелками", async () => {
+      ok(await page.locator('[data-win="chat"] .variants').count() > 0, "пагинатор должен появиться");
+      const before = await page.evaluate(() => {
+        const s = Chat.exportAll().find((x) => x.id === "b1");
+        return s.messages.find((m) => m.group && !m.hidden).text;
+      });
+      await page.locator('[data-win="chat"] .variants [data-act="prev"]').first().click();
+      await page.waitForTimeout(400);
+      const after = await page.evaluate(() => {
+        const s = Chat.exportAll().find((x) => x.id === "b1");
+        return s.messages.find((m) => m.group && !m.hidden).text;
+      });
+      ok(before !== after, "видимый вариант должен смениться");
+    });
+
+    /* ---------------------------------------------------------- codebase */
+    describe("чтение проекта");
+    await it("читает рабочую папку и режет на фрагменты", async () => {
+      const filler = "# наполнение строкой\n".repeat(60);
+      await page.evaluate((body) => S.api("/api/file", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: "demo/launcher.py", text: body })
+      }), "def start_server(port):\n    # Поднимает локальный сервер Sayumi\n    return port\n\n" + filler);
+      const res = await page.evaluate(() => new Promise((done) => Codebase.scan(done)));
+      ok(res && res.files.length > 0, "файлы должны найтись");
+      ok(res.chunks.length > 0, "фрагменты должны получиться");
+    });
+
+    await it("находит фрагмент по смыслу вопроса", async () => {
+      const hits = await page.evaluate(() => Codebase.search("как поднимается сервер", 3)
+        .map((c) => c.path));
+      ok(hits.some((p) => p.includes("launcher")), "ожидался launcher.py, получено " + hits);
+    });
+
+    await it("подмешивает код в промпт только когда включено", async () => {
+      const off = await page.evaluate(() => {
+        Codebase.setSettings({ enabled: false });
+        return Codebase.context("сервер");
+      });
+      eq(off, "");
+      const on = await page.evaluate(() => {
+        Codebase.setSettings({ enabled: true });
+        return Codebase.context("как поднимается сервер");
+      });
+      ok(on.indexOf("launcher.py") >= 0, "в промпт должен попасть путь файла");
+    });
+
+    /* -------------------------------------------------------------- board */
+    describe("доска задач");
+    await it("разбирает приоритет и дату из строки", async () => {
+      await page.evaluate(() => {
+        Object.keys(Win.open).forEach((k) => Win.open[k].close());
+        localStorage.setItem("sayumi.tools.tasks", "[]");
+      });
+      await page.reload({ waitUntil: "networkidle" });
+      await page.waitForTimeout(700);
+      await page.click("#nav-tasks");
+      await page.waitForTimeout(400);
+      await page.fill('[data-win="tasks"] input.search', "сдать отчёт !важно 2020-01-01");
+      await page.press('[data-win="tasks"] input.search', "Enter");
+      await page.waitForTimeout(400);
+      const t = await page.evaluate(() => Tools.tasks[0]);
+      eq(t.prio, "high");
+      eq(t.due, "2020-01-01");
+      ok(t.text.indexOf("!важно") < 0, "метка должна уйти из текста: " + t.text);
+    });
+
+    await it("вчерашний срок считается просроченным, а не сегодняшним", async () => {
+      const kinds = await page.evaluate(() => {
+        const day = 86400000;
+        const at = (shift) => new Date(Date.now() + shift * day).toISOString().slice(0, 10);
+        return {
+          yesterday: Tools.dueState({ due: at(-1), col: "todo" }).kind,
+          today: Tools.dueState({ due: at(0), col: "todo" }).kind,
+          tomorrow: Tools.dueState({ due: at(1), col: "todo" }).kind,
+          far: Tools.dueState({ due: at(30), col: "todo" }).kind,
+          done: Tools.dueState({ due: at(-1), col: "done" })
+        };
+      });
+      eq(kinds.yesterday, "late");
+      eq(kinds.today, "today");
+      eq(kinds.tomorrow, "soon");
+      eq(kinds.far, "far");
+      eq(kinds.done, null, "готовая задача не напоминает о себе");
+    });
+
+    await it("показывает просрочку", async () => {
+      const state = await page.evaluate(() => Tools.dueState(Tools.tasks[0]));
+      eq(state.kind, "late");
+      ok(await page.locator('[data-win="tasks"] .t-due.late').count() > 0);
+    });
+
+    await it("рисует три колонки", async () => {
+      eq(await page.locator('[data-win="tasks"] .column').count(), 3);
+      await page.locator('[data-win="tasks"] .win-tools button.close').click();
+    });
+
+    /* ------------------------------------------------------------ compact */
+    describe("компактная раскладка");
+    await it("окно разворачивается во весь экран на узком", async () => {
+      await page.setViewportSize({ width: 420, height: 760 });
+      await page.waitForTimeout(400);
+      await page.evaluate(() => Chat.openWindow());
+      await page.waitForTimeout(400);
+      const box = await page.locator('[data-win="chat"]').boundingBox();
+      ok(box.width >= 410, "ширина окна должна занять экран, стало " + box.width);
+      eq(await page.locator(".topnav").isVisible(), false, "навигация прячется");
+      await page.setViewportSize({ width: 1360, height: 880 });
+      await page.waitForTimeout(400);
+    });
+
     describe("консоль");
     await it("ни одной ошибки за весь прогон", () => {
       eq(errors, []);
